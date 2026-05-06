@@ -1,14 +1,14 @@
 # Data Operations
 
-This reference explains how to use DataStore, ConversionTable, Sequences, and System classes for data operations in
-TunnelHub SDK.
+This reference explains how to use `DataStore`, `ConversionTable`, `Sequences`, and `System` classes for data
+operations in TunnelHub SDK.
 
 ## Overview
 
 TunnelHub SDK provides four main classes for data operations:
 
-1. **DataStore** - Access stored data from DynamoDB
-2. **ConversionTable** - Map values between systems
+1. **DataStore** - Read and write conversion table items stored in DynamoDB
+2. **ConversionTable** - Resolve mapped values between systems
 3. **Sequences** - Generate sequential IDs atomically
 4. **System** - Retrieve system configuration
 
@@ -16,8 +16,8 @@ TunnelHub SDK provides four main classes for data operations:
 
 ### Purpose
 
-Conversion tables allow you to map values between source and target systems. This is useful for translating IDs, codes,
-or other values that differ between systems.
+Conversion tables allow mapping values between source and target systems. Use them to translate IDs, codes, statuses,
+or any other values that differ between systems.
 
 ### When to Use
 
@@ -34,7 +34,7 @@ or other values that differ between systems.
 import { DataStore, ConversionTable } from '@tunnelhub/sdk';
 
 const dataStore = new DataStore(event: ProcessorPayload);
-const conversionTable = new ConversionTable(dataStore: DataStore);
+const conversionTable = new ConversionTable(dataStore);
 ```
 
 **Example:**
@@ -52,13 +52,43 @@ class MyIntegration extends DeltaIntegrationFlow<MyType> {
 }
 ```
 
+### Reading All Items with DataStore
+
+```typescript
+public async getConversionTableItems(externalCode: string): Promise<DataStoreItemInternal[]>
+```
+
+Retrieve all items from a conversion table using its `externalCode`.
+
+**Parameters:**
+
+- `externalCode`: Conversion table identifier stored in TunnelHub
+
+**Returns:**
+
+- `Promise<DataStoreItemInternal[]>` - Array of items with `fromValue`, `toValue`, and metadata fields
+
+**Behavior:**
+
+- Return `[]` when the conversion table does not exist
+- Resolve the table header internally by `externalCode`
+
+**Example:**
+
+```typescript
+const dataStore = new DataStore(this.executionEvent);
+const items = await dataStore.getConversionTableItems('departments');
+
+const salesMapping = items.find(item => item.fromValue === 'SALES');
+```
+
 ### getValuesFromConversionTable
 
 ```typescript
 public async getValuesFromConversionTable(tableName: string): Promise<DataStoreItemInternal[]>
 ```
 
-Retrieve all items from a conversion table.
+Retrieve and cache all items from a conversion table.
 
 **Parameters:**
 
@@ -86,7 +116,7 @@ class DepartmentMappingIntegration extends DeltaIntegrationFlow<Employee> {
     const departments = await this.conversionTable.getValuesFromConversionTable('departments');
 
     // Find matching department
-    const targetDept = departments.find(d => d.code === item.department);
+    const targetDept = departments.find(d => d.fromValue === item.department);
 
     if (!targetDept) {
       throw new Error(`Department not found: ${item.department}`);
@@ -97,7 +127,7 @@ class DepartmentMappingIntegration extends DeltaIntegrationFlow<Employee> {
       method: 'POST',
       body: JSON.stringify({
         name: item.name,
-        departmentId: targetDept.targetId,
+        departmentId: targetDept.toValue,
       }),
     });
 
@@ -111,20 +141,30 @@ class DepartmentMappingIntegration extends DeltaIntegrationFlow<Employee> {
 ```typescript
 public async getValueFromConversionTable(
   tableName: string,
-  fromValue?: string
-): Promise<DataStoreItemInternal | undefined>
+  fromValue?: string,
+  toValue?: string,
+  notRequired = false,
+): Promise<string | undefined>
 ```
 
-Retrieve a specific value from a conversion table.
+Retrieve a mapped value from a conversion table.
 
 **Parameters:**
 
 - `tableName`: Name of the conversion table
-- `fromValue`: Value to look up (code field)
+- `fromValue`: Source value to look up
+- `toValue`: Target value to reverse look up
+- `notRequired`: Return `undefined` instead of throwing when a value is not found or when parameters are intentionally omitted
 
 **Returns:**
 
-- `Promise<DataStoreItemInternal | undefined>` - Matching item or undefined
+- `Promise<string | undefined>` - Mapped value or `undefined`
+
+**Behavior:**
+
+- Pass exactly one of `fromValue` or `toValue`
+- Throw `database.invalidConversionTableParams` when both or neither are provided and `notRequired` is `false`
+- Throw `database.valueNotFoundInTable` when the value does not exist and `notRequired` is `false`
 
 **Example:**
 
@@ -141,18 +181,14 @@ class ProductCategoryIntegration extends DeltaIntegrationFlow<Product> {
 
   protected async insertAction(item: Product): Promise<IntegrationMessageReturn> {
     // Map category code to target category ID
-    const categoryMapping = await this.conversionTable.getValueFromConversionTable('product_categories', item.category);
-
-    if (!categoryMapping) {
-      throw new Error(`Category not found: ${item.category}`);
-    }
+    const categoryId = await this.conversionTable.getValueFromConversionTable('product_categories', item.category);
 
     // Create product with mapped category ID
     const response = await fetch('https://ecommerce.example.com/api/products', {
       method: 'POST',
       body: JSON.stringify({
         name: item.name,
-        categoryId: categoryMapping.targetId,
+        categoryId,
         price: item.price,
       }),
     });
@@ -160,6 +196,128 @@ class ProductCategoryIntegration extends DeltaIntegrationFlow<Product> {
     return {message: 'Product created', data: {id: response.data.id}};
   }
 }
+```
+
+### Writing Conversion Table Items with DataStore
+
+Use `DataStore` when integrations need to create, update, or remove conversion table items directly.
+
+### createConversionTableItem
+
+```typescript
+public async createConversionTableItem(input: CreateConversionTableItemInput): Promise<DataStoreItemInternal>
+```
+
+Create a new item in a conversion table.
+
+**Input:**
+
+```typescript
+type CreateConversionTableItemInput = {
+  externalCode: string;
+  fromValue: string;
+  toValue: string;
+};
+```
+
+**Returns:**
+
+- `Promise<DataStoreItemInternal>` - Created item with `uuid`, `createdAt`, `createdBy`, `fromValue`, and `toValue`
+
+**Behavior:**
+
+- Resolve the conversion table internally by `externalCode`
+- Generate a `uuid` automatically
+- Set `createdBy` to `SDK`
+- Throw `database.conversionTableNotFound` when the table does not exist
+
+**Example:**
+
+```typescript
+const dataStore = new DataStore(this.executionEvent);
+
+const createdItem = await dataStore.createConversionTableItem({
+  externalCode: 'departments',
+  fromValue: 'SALES',
+  toValue: 'DEPT-001',
+});
+```
+
+### updateConversionTableItem
+
+```typescript
+public async updateConversionTableItem(input: UpdateConversionTableItemInput): Promise<DataStoreItemInternal>
+```
+
+Update one conversion table item by `itemUuid`.
+
+**Input:**
+
+```typescript
+type UpdateConversionTableItemInput = {
+  externalCode: string;
+  itemUuid: string;
+  fromValue?: string;
+  toValue?: string;
+};
+```
+
+**Returns:**
+
+- `Promise<DataStoreItemInternal>` - Updated item with refreshed `updatedAt` and `updatedBy`
+
+**Behavior:**
+
+- Require at least one of `fromValue` or `toValue`
+- Set `updatedBy` to `SDK`
+- Throw `database.invalidConversionTableItemUpdateParams` when no update fields are provided
+- Throw `database.conversionTableNotFound` when the table does not exist
+- Throw `database.conversionTableItemNotFound` when the item does not exist in the resolved table
+
+**Example:**
+
+```typescript
+await dataStore.updateConversionTableItem({
+  externalCode: 'departments',
+  itemUuid: createdItem.uuid,
+  toValue: 'DEPT-010',
+});
+```
+
+### deleteConversionTableItem
+
+```typescript
+public async deleteConversionTableItem(input: DeleteConversionTableItemInput): Promise<boolean>
+```
+
+Delete one conversion table item by `itemUuid`.
+
+**Input:**
+
+```typescript
+type DeleteConversionTableItemInput = {
+  externalCode: string;
+  itemUuid: string;
+};
+```
+
+**Returns:**
+
+- `Promise<boolean>` - `true` when the item is deleted
+
+**Behavior:**
+
+- Resolve the table internally by `externalCode`
+- Throw `database.conversionTableNotFound` when the table does not exist
+- Throw `database.conversionTableItemNotFound` when the item does not exist in the resolved table
+
+**Example:**
+
+```typescript
+await dataStore.deleteConversionTableItem({
+  externalCode: 'departments',
+  itemUuid: createdItem.uuid,
+});
 ```
 
 ### Complete Example: Multiple Conversion Tables
@@ -202,20 +360,16 @@ class OrderSyncIntegration extends DeltaIntegrationFlow<Order> {
 
   protected async insertAction(item: Order): Promise<IntegrationMessageReturn> {
     // Map all fields using conversion tables
-    const customerMapping = await this.customerTable.getValueFromConversionTable('customers', item.customerId);
+    const customerId = await this.customerTable.getValueFromConversionTable('customers', item.customerId);
 
-    const productMapping = await this.productTable.getValueFromConversionTable('products', item.productId);
+    const productId = await this.productTable.getValueFromConversionTable('products', item.productId);
 
-    const paymentMapping = await this.paymentMethodTable.getValueFromConversionTable(
+    const paymentMethodId = await this.paymentMethodTable.getValueFromConversionTable(
       'payment_methods',
       item.paymentMethod,
     );
 
-    const statusMapping = await this.statusTable.getValueFromConversionTable('order_statuses', item.status);
-
-    if (!customerMapping || !productMapping || !paymentMapping || !statusMapping) {
-      throw new Error('Required mapping not found');
-    }
+    const statusId = await this.statusTable.getValueFromConversionTable('order_statuses', item.status);
 
     // Create order with mapped IDs
     const response = await fetch('https://erp.example.com/api/orders', {
@@ -223,10 +377,10 @@ class OrderSyncIntegration extends DeltaIntegrationFlow<Order> {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         externalId: item.orderId,
-        customerId: customerMapping.targetId,
-        productId: productMapping.targetId,
-        paymentMethodId: paymentMapping.targetId,
-        statusId: statusMapping.targetId,
+        customerId,
+        productId,
+        paymentMethodId,
+        statusId,
       }),
     });
 
@@ -240,13 +394,13 @@ class OrderSyncIntegration extends DeltaIntegrationFlow<Order> {
 
   protected async updateAction(oldItem: Order, newItem: Order): Promise<IntegrationMessageReturn> {
     // Similar mapping logic
-    const statusMapping = await this.statusTable.getValueFromConversionTable('order_statuses', newItem.status);
+    const statusId = await this.statusTable.getValueFromConversionTable('order_statuses', newItem.status);
 
     const response = await fetch(`https://erp.example.com/api/orders/${oldItem.externalId}`, {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        statusId: statusMapping.targetId,
+        statusId,
       }),
     });
 
@@ -936,9 +1090,9 @@ class MyIntegration extends DeltaIntegrationFlow<MyType> {
 
 ```typescript
 protected async insertAction(item: MyType): Promise<IntegrationMessageReturn> {
-  const mapping = await this.conversionTable.getValueFromConversionTable('table', item.code);
+  const mappedValue = await this.conversionTable.getValueFromConversionTable('table', item.code, undefined, true);
 
-  if (!mapping) {
+  if (!mappedValue) {
     SDK.log(`Mapping not found for code: ${item.code}`);
     return {
       message: 'Mapping not found',

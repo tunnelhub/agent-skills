@@ -4,8 +4,8 @@ description:
   This skill should be used when creating, modifying, or maintaining integrations using the @tunnelhub/sdk package. It
   provides specialized guidance for implementing data synchronization flows, managing parameters, handling logging
   strategies, and working with AWS infrastructure components (DynamoDB, S3, Firehose). Use this skill when working with
-  integration flows (Delta, Batch Delta, No Delta, No Delta Batch), parameter management, data stores, sequences, HTTP
-  interceptors, or testing integration code.
+  integration flows (Delta, Batch Delta, No Delta, No Delta Batch), parameter management, data stores and conversion
+  tables including CRUD operations, sequences, HTTP interceptors, or testing integration code.
 ---
 
 # TunnelHub SDK
@@ -372,7 +372,7 @@ await paramManager.saveParameter('last_sync_date', new Date().toISOString());
 
 ### DataStore & ConversionTable
 
-Use conversion tables to map values between systems.
+Use `ConversionTable` to read mapped values and `DataStore` to read or maintain conversion table items.
 
 ```typescript
 import {DataStore, ConversionTable} from '@tunnelhub/sdk';
@@ -383,9 +383,26 @@ const conversionTable = new ConversionTable(dataStore);
 // Get all items from conversion table
 const allMappings = await conversionTable.getValuesFromConversionTable('departments');
 
-// Get specific value
+// Get the mapped value for a source value
 const departmentId = await conversionTable.getValueFromConversionTable('departments', 'SALES');
-// Returns: { code: 'SALES', id: 'DEPT-001', description: 'Sales Department' }
+
+// Create, update, or delete conversion table items directly
+const createdItem = await dataStore.createConversionTableItem({
+  externalCode: 'departments',
+  fromValue: 'SALES',
+  toValue: 'DEPT-001',
+});
+
+await dataStore.updateConversionTableItem({
+  externalCode: 'departments',
+  itemUuid: createdItem.uuid,
+  toValue: 'DEPT-010',
+});
+
+await dataStore.deleteConversionTableItem({
+  externalCode: 'departments',
+  itemUuid: createdItem.uuid,
+});
 ```
 
 ### Sequences
@@ -612,7 +629,7 @@ This skill includes detailed reference documentation for specific topics:
 - **references/integration-flows.md** - Complete details on all four flow types, methods, and examples
 - **references/logging-strategy.md** - Smart logging strategy configuration and optimization
 - **references/parameters-management.md** - Parameter management patterns and use cases
-- **references/data-operations.md** - DataStore, Sequences, System configuration usage
+- **references/data-operations.md** - DataStore read/write operations, conversion tables, sequences, system configuration
 - **references/utilities.md** - Promise utilities, validations, and helpers
 - **references/http-interceptor.md** - HTTP request/response logging configuration
 - **references/system-configuration.md** - System types and parameter structures

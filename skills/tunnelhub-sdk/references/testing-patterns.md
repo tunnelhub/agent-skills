@@ -23,6 +23,29 @@ SDK.testMode = true;
 
 Test mode disables actual DynamoDB and S3 operations, allowing tests to run without external dependencies.
 
+### SQL Tables Tests
+
+`SqlTables` is different from most SDK helpers because the real implementation depends on `node:sqlite`, SQL Table
+metadata, and the managed EFS mount. Tests that exercise real SQL Tables behavior require Node.js 24 or newer and
+runtime-like environment variables such as `TH_SQL_TABLES_ENABLED=true`.
+
+For integration unit tests that do not need to validate SQLite behavior, wrap `SqlTables` usage behind a small method or
+class property and mock that boundary:
+
+```typescript
+class MyIntegration extends NoDeltaIntegrationFlow<MyType> {
+  protected readonly sqlTables: Pick<SqlTables, 'queryRows' | 'insertRow' | 'updateRow'>;
+
+  constructor(event: ProcessorPayload, context?: LambdaContext, sqlTables?: Pick<SqlTables, 'queryRows' | 'insertRow' | 'updateRow'>) {
+    super(event, context);
+    this.sqlTables = sqlTables ?? new SqlTables(this.executionEvent);
+  }
+}
+```
+
+Use the real helper only when the test specifically validates SQL Table row behavior. Do not scan production DynamoDB
+tables to discover SQL Table metadata.
+
 ## Basic Test Structure
 
 ```typescript

@@ -1,16 +1,55 @@
 # Data Operations
 
-This reference explains how to use `DataStore`, `ConversionTable`, `Sequences`, and `System` classes for data
+This reference explains how to use `DataStore`, `ConversionTable`, `SqlTables`, `Sequences`, and `System` classes for data
 operations in TunnelHub SDK.
 
 ## Overview
 
-TunnelHub SDK provides four main classes for data operations:
+TunnelHub SDK provides five main classes for data operations:
 
 1. **DataStore** - Read and write conversion table items stored in DynamoDB
 2. **ConversionTable** - Resolve mapped values between systems
-3. **Sequences** - Generate sequential IDs atomically
-4. **System** - Retrieve system configuration
+3. **SqlTables** - Read and mutate structured SQL Tables/Tabelas de Apoio stored as SQLite on EFS
+4. **Sequences** - Generate sequential IDs atomically
+5. **System** - Retrieve system configuration
+
+## SQL Tables / Tabelas de Apoio
+
+Use `SqlTables` for structured relational support data associated with an automation. SQL Tables are appropriate when the
+data has typed columns, a primary key, filters, ordering, pagination, CSV import/export in the platform, or must be
+visible and maintainable in the product.
+
+Prefer `DataStore` and `ConversionTable` for simple from/to mappings.
+
+```typescript
+import {SqlTables} from '@tunnelhub/sdk';
+
+const sqlTables = new SqlTables(this.executionEvent);
+
+const inserted = await sqlTables.insertRow('customer-cache', {
+  document: '12345678900',
+  name: 'Customer example',
+  active: true,
+});
+
+const page = await sqlTables.queryRows('customer-cache', {
+  current: 1,
+  pageSize: 20,
+  filter: {
+    document: ['12345678900'],
+  },
+});
+
+await sqlTables.updateRow('customer-cache', inserted.rowId, {
+  name: 'Updated customer',
+});
+
+await sqlTables.deleteRow('customer-cache', inserted.rowId);
+```
+
+SQL Tables require `runtime: nodejs24.x`, `runInVpc: true`, `configuration.sqlTables.enabled: true`, the managed runtime
+environment variable `TH_SQL_TABLES_ENABLED=true`, and the SQL Tables EFS mount. For detailed API behavior, validation
+rules, runtime constraints, and troubleshooting, load `references/sql-tables.md`.
 
 ## DataStore & ConversionTable
 

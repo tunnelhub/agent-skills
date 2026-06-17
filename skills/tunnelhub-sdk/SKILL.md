@@ -3,9 +3,10 @@ name: tunnelhub-sdk
 description:
   This skill should be used when creating, modifying, or maintaining integrations using the @tunnelhub/sdk package. It
   provides specialized guidance for implementing data synchronization flows, managing parameters, handling logging
-  strategies, and working with AWS infrastructure components (DynamoDB, S3, Firehose). Use this skill when working with
-  integration flows (Delta, Batch Delta, No Delta, No Delta Batch), parameter management, data stores and conversion
-  tables including CRUD operations, sequences, HTTP interceptors, or testing integration code.
+  strategies, and working with AWS infrastructure components (DynamoDB, S3, Firehose, SQLite on EFS). Use this skill when
+  working with integration flows (Delta, Batch Delta, No Delta, No Delta Batch), parameter management, data stores,
+  conversion tables including CRUD operations, SQL Tables/Tabelas de Apoio, sequences, HTTP interceptors, or testing
+  integration code.
 ---
 
 # TunnelHub SDK
@@ -14,7 +15,7 @@ description:
 
 This skill provides specialized guidance for developers working with the @tunnelhub/sdk package to create and maintain
 data integration automations. It covers implementation of integration flows, parameter management, data operations,
-logging strategies, testing patterns, and common utilities.
+SQL Tables/Tabelas de Apoio, logging strategies, testing patterns, and common utilities.
 
 ## When to Use
 
@@ -23,7 +24,7 @@ Use this skill when:
 - Creating new integration automations using TunnelHub SDK
 - Implementing or modifying integration flows (Delta, Batch Delta, No Delta, No Delta Batch)
 - Managing integration parameters (static or dynamic)
-- Working with data stores, conversion tables, or sequences
+- Working with data stores, conversion tables, SQL Tables/Tabelas de Apoio, or sequences
 - Configuring logging strategies (realtime vs batch)
 - Testing integration code
 - Debugging existing integrations
@@ -419,6 +420,43 @@ const nextId = await sequences.getSequenceNextValue('customer_sequence');
 // Returns: 1001, 1002, 1003, ...
 ```
 
+### SQL Tables / Tabelas de Apoio
+
+Use `SqlTables` for structured relational support data associated with the automation. Prefer SQL Tables when the data
+has typed columns, a primary key, pagination, filters, CSV import/export in the platform, or must be visible and
+maintainable in the product. Keep using `DataStore`/`ConversionTable` for simple from/to mappings.
+
+```typescript
+import {SqlTables} from '@tunnelhub/sdk';
+
+const sqlTables = new SqlTables(this.executionEvent);
+
+const inserted = await sqlTables.insertRow('customer-cache', {
+  document: '12345678900',
+  name: 'Customer example',
+  active: true,
+});
+
+const page = await sqlTables.queryRows('customer-cache', {
+  current: 1,
+  pageSize: 20,
+  filter: {
+    document: ['12345678900'],
+  },
+});
+
+await sqlTables.updateRow('customer-cache', inserted.rowId, {
+  name: 'Updated customer',
+});
+
+await sqlTables.deleteRow('customer-cache', inserted.rowId);
+```
+
+SQL Tables require managed runtime support: `runtime: nodejs24.x`, `runInVpc: true`,
+`configuration.sqlTables.enabled: true`, `TH_SQL_TABLES_ENABLED=true`, and the SQL Tables EFS mount provided by
+TunnelHub. For the full API contract, validation behavior, runtime requirements, and troubleshooting, see
+`references/sql-tables.md`.
+
 ### System Configuration
 
 Systems are already available in the `this.systems` array in all integration flows.
@@ -629,7 +667,8 @@ This skill includes detailed reference documentation for specific topics:
 - **references/integration-flows.md** - Complete details on all four flow types, methods, and examples
 - **references/logging-strategy.md** - Smart logging strategy configuration and optimization
 - **references/parameters-management.md** - Parameter management patterns and use cases
-- **references/data-operations.md** - DataStore read/write operations, conversion tables, sequences, system configuration
+- **references/data-operations.md** - DataStore read/write operations, conversion tables, SQL Tables, sequences, system configuration
+- **references/sql-tables.md** - SQL Tables/Tabelas de Apoio helper, runtime requirements, row operations, validation, troubleshooting
 - **references/utilities.md** - Promise utilities, validations, and helpers
 - **references/http-interceptor.md** - HTTP request/response logging configuration
 - **references/system-configuration.md** - System types and parameter structures

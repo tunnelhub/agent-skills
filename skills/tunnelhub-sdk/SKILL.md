@@ -5,8 +5,8 @@ description:
   provides specialized guidance for implementing data synchronization flows, managing parameters, handling logging
   strategies, and working with AWS infrastructure components (DynamoDB, S3, Firehose, SQLite on EFS). Use this skill when
   working with integration flows (Delta, Batch Delta, No Delta, No Delta Batch), parameter management, data stores,
-  conversion tables including CRUD operations, SQL Tables/Tabelas de Apoio, sequences, HTTP interceptors, or testing
-  integration code.
+  conversion tables including CRUD operations, SQL Tables/Tabelas de Apoio, sequences, HTTP interceptors, testing
+  integration code, or configuring CI/CD deployment workflows for TunnelHub SDK automations with @tunnelhub/cli.
 ---
 
 # TunnelHub SDK
@@ -15,7 +15,8 @@ description:
 
 This skill provides specialized guidance for developers working with the @tunnelhub/sdk package to create and maintain
 data integration automations. It covers implementation of integration flows, parameter management, data operations,
-SQL Tables/Tabelas de Apoio, logging strategies, testing patterns, and common utilities.
+SQL Tables/Tabelas de Apoio, logging strategies, testing patterns, CI/CD deployment workflow generation, and common
+utilities.
 
 ## When to Use
 
@@ -29,6 +30,8 @@ Use this skill when:
 - Testing integration code
 - Debugging existing integrations
 - Configuring HTTP interceptors for API calls
+- Generating `.github/workflows/deploy-tunnelhub.yml` for automatic deployment of TunnelHub SDK automations
+- Configuring GitHub Actions secrets and variables for `tunnelhub deploy-automation`
 
 ## Choosing the Right Integration Flow
 
@@ -645,6 +648,25 @@ await integration.doIntegration();
 expect(integration.hasAnyErrors()).toBeFalsy();
 ```
 
+## CI/CD Deployment Workflow
+
+Load `references/ci-cd-deployments.md` when asked to configure automatic deployment, CI/CD, GitHub Actions, or
+`tunnelhub deploy-automation` for a TunnelHub SDK integration.
+
+When configuring GitHub Actions, generate or update `.github/workflows/deploy-tunnelhub.yml`. Do not run
+`tunnelhub deploy-automation` from the local agent environment; include it only as a workflow step.
+
+Key rules:
+
+- Do not use `tunnelhub login` in CI.
+- Do not commit credentials.
+- Use CI/CD credentials through `TH_CLIENT_ID`, `TH_CLIENT_SECRET`, `TH_ENVIRONMENT_ID`, and `TH_API_HOST`.
+- Store `TH_CLIENT_ID` and `TH_CLIENT_SECRET` as secrets, and prefer least-privilege environment allowlists.
+- Generate the ZIP artifact at the path configured by `package.artifact` in `tunnelhub.yml` before the deploy step.
+- Include a required `--message` with human context such as commit message, SHA, author, branch, or run context.
+- Treat tests as conditional: do not add test steps unless the project already uses them or the user asks; if tests run in
+  the workflow, verify they do not include unmocked/debug tests with real calls or real data.
+
 ## System Types Reference
 
 TunnelHub supports these system types:
@@ -673,5 +695,6 @@ This skill includes detailed reference documentation for specific topics:
 - **references/http-interceptor.md** - HTTP request/response logging configuration
 - **references/system-configuration.md** - System types and parameter structures
 - **references/testing-patterns.md** - Testing patterns, mocking, and test data generation
+- **references/ci-cd-deployments.md** - CI/CD workflow generation for TunnelHub CLI deploys, including conditional test safety checks
 
 Load these reference files when you need detailed information on specific topics.

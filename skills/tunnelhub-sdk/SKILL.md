@@ -1,700 +1,153 @@
 ---
 name: tunnelhub-sdk
-description:
-  This skill should be used when creating, modifying, or maintaining integrations using the @tunnelhub/sdk package. It
-  provides specialized guidance for implementing data synchronization flows, managing parameters, handling logging
-  strategies, and working with AWS infrastructure components (DynamoDB, S3, Firehose, SQLite on EFS). Use this skill when
-  working with integration flows (Delta, Batch Delta, No Delta, No Delta Batch), parameter management, data stores,
-  conversion tables including CRUD operations, SQL Tables/Tabelas de Apoio, sequences, HTTP interceptors, testing
-  integration code, or configuring CI/CD deployment workflows for TunnelHub SDK automations with @tunnelhub/cli.
+description: >-
+  Cria, modifica e revisa automações com @tunnelhub/sdk seguindo os padrões de estrutura,
+  modelo de integração, fluxos delta ou sem delta, clientes externos, conversões,
+  parâmetros, monitoramento, testes e empacotamento TunnelHub. Use também para configurar
+  CI/CD dessas automações com @tunnelhub/cli.
 ---
 
 # TunnelHub SDK
 
-## Overview
-
-This skill provides specialized guidance for developers working with the @tunnelhub/sdk package to create and maintain
-data integration automations. It covers implementation of integration flows, parameter management, data operations,
-SQL Tables/Tabelas de Apoio, logging strategies, testing patterns, CI/CD deployment workflow generation, and common
-utilities.
-
-## When to Use
-
-Use this skill when:
-
-- Creating new integration automations using TunnelHub SDK
-- Implementing or modifying integration flows (Delta, Batch Delta, No Delta, No Delta Batch)
-- Managing integration parameters (static or dynamic)
-- Working with data stores, conversion tables, SQL Tables/Tabelas de Apoio, or sequences
-- Configuring logging strategies (realtime vs batch)
-- Testing integration code
-- Debugging existing integrations
-- Configuring HTTP interceptors for API calls
-- Generating `.github/workflows/deploy-tunnelhub.yml` for automatic deployment of TunnelHub SDK automations
-- Configuring GitHub Actions secrets and variables for `tunnelhub deploy-automation`
-
-## Choosing the Right Integration Flow
-
-TunnelHub SDK provides four integration flow types. Choose based on synchronization requirements and data volume:
-
-### DeltaIntegrationFlow
-
-Use when you need bidirectional synchronization with change tracking.
-
-**When to use:**
-
-- Synchronize data between source and target systems
-- Track and apply insert, update, and delete operations
-- Maintain state between executions
-- Detect changes based on delta fields
-
-**Required methods:**
-
-```typescript
-protected async loadSourceSystemData(): Promise<T[]>
-protected async loadTargetSystemData(): Promise<T[]>
-protected async insertAction(item: T): Promise<IntegrationMessageReturn>
-protected async updateAction(oldItem: T, newItem: T): Promise<IntegrationMessageReturn>
-protected async deleteAction(item: T): Promise<IntegrationMessageReturn>
-protected defineMetadata(): Array<Metadata>
-```
-
-**Example:**
-
-```typescript
-class UserSyncIntegration extends DeltaIntegrationFlow<User> {
-  constructor(event: ProcessorPayload, context?: LambdaContext) {
-    super(event, ['userId'], ['name', 'email', 'status'], context);
-  }
-
-  protected async loadSourceSystemData(): Promise<User[]> {
-    // Load data from source system
-    const system = this.systems.find(s => s.internalName === 'source_system');
-    return await fetchUsersFromSystem(system);
-  }
-
-  protected async loadTargetSystemData(): Promise<User[]> {
-    // Load data from target system
-    const system = this.systems.find(s => s.internalName === 'target_system');
-    return await fetchUsersFromSystem(system);
-  }
-
-  protected async insertAction(item: User): Promise<IntegrationMessageReturn> {
-    try {
-      const result = await createUserInTarget(item);
-      return {success: true, message: 'User created', data: result};
-    } catch (error) {
-      return {success: false, message: error.message};
-    }
-  }
-
-  protected async updateAction(oldItem: User, newItem: User): Promise<IntegrationMessageReturn> {
-    try {
-      const result = await updateUserInTarget(newItem);
-      return {success: true, message: 'User updated', data: result};
-    } catch (error) {
-      return {success: false, message: error.message};
-    }
-  }
-
-  protected async deleteAction(item: User): Promise<IntegrationMessageReturn> {
-    try {
-      await deleteUserInTarget(item);
-      return {success: true, message: 'User deleted'};
-    } catch (error) {
-      return {success: false, message: error.message};
-    }
-  }
-
-  protected defineMetadata(): Array<Metadata> {
-    return [
-      {fieldName: 'userId', fieldLabel: 'User ID', fieldType: 'TEXT'},
-      {fieldName: 'name', fieldLabel: 'Name', fieldType: 'TEXT'},
-      {fieldName: 'email', fieldLabel: 'Email', fieldType: 'TEXT'},
-      {fieldName: 'status', fieldLabel: 'Status', fieldType: 'BOOLEAN'},
-    ];
-  }
-}
-```
-
-### BatchDeltaIntegrationFlow
-
-Use when processing large datasets with delta tracking.
-
-**When to use:**
-
-- High-volume data synchronization (>1000 items)
-- Need batch operations for performance
-- Want to reduce API calls
-- Have delta tracking requirements
-
-**Additional required methods (extends DeltaIntegrationFlow):**
-
-```typescript
-protected async batchInsertAction(items: T[]): Promise<IntegrationMessageReturnBatch[]>
-protected async batchUpdateAction(oldItems: T[], newItems: T[]): Promise<IntegrationMessageReturnBatch[]>
-protected async batchDeleteAction(items: T[]): Promise<IntegrationMessageReturnBatch[]>
-```
-
-**Configuration:**
-
-```typescript
-constructor(event: ProcessorPayload, keyFields: Array<keyof T>, deltaFields: Array<keyof T>, context?: LambdaContext) {
-  super(event, keyFields, deltaFields, context);
-  this.packageSize = 100; // Set batch size
-}
-```
-
-**Example:**
-
-```typescript
-class ProductSyncIntegration extends BatchDeltaIntegrationFlow<Product> {
-  constructor(event: ProcessorPayload, context?: LambdaContext) {
-    super(event, ['productId'], ['name', 'price', 'stock'], context);
-    this.packageSize = 200;
-  }
-
-  protected async batchInsertAction(items: Product[]): Promise<IntegrationMessageReturnBatch[]> {
-    const results = await bulkCreateProducts(items);
-    return results.map(r => ({
-      message: r.success ? 'Product created' : r.error,
-      data: r.data,
-      status: r.success ? 'SUCCESS' : 'FAIL',
-    }));
-  }
-
-  protected async batchUpdateAction(
-    oldItems: Product[],
-    newItems: Product[],
-  ): Promise<IntegrationMessageReturnBatch[]> {
-    const results = await bulkUpdateProducts(newItems);
-    return results.map(r => ({
-      message: r.success ? 'Product updated' : r.error,
-      data: r.data,
-      status: r.success ? 'SUCCESS' : 'FAIL',
-    }));
-  }
-
-  protected async batchDeleteAction(items: Product[]): Promise<IntegrationMessageReturnBatch[]> {
-    const results = await bulkDeleteProducts(items);
-    return results.map(r => ({
-      message: r.success ? 'Product deleted' : r.error,
-      data: r.data,
-      status: r.success ? 'SUCCESS' : 'FAIL',
-    }));
-  }
-
-  protected async loadSourceSystemData(): Promise<Product[]> {
-    /* ... */
-  }
-  protected async loadTargetSystemData(): Promise<Product[]> {
-    /* ... */
-  }
-  protected defineMetadata(): Array<Metadata> {
-    /* ... */
-  }
-}
-```
-
-### NoDeltaIntegrationFlow
-
-Use for simple one-way data transfer without state tracking.
-
-**When to use:**
-
-- One-time or streaming data transfers
-- No need for change detection
-- Simple data extraction and loading
-- Stateless execution
-
-**Required methods:**
-
-```typescript
-protected async loadSourceSystemData(): Promise<T[]>
-protected async sendData(item: T): Promise<IntegrationMessageReturn>
-protected defineMetadata(): Array<Metadata>
-```
-
-**Example:**
-
-```typescript
-class ExportToAnalytics extends NoDeltaIntegrationFlow<AnalyticsEvent> {
-  constructor(event: ProcessorPayload, context?: LambdaContext) {
-    super(event, context);
-  }
-
-  protected async loadSourceSystemData(): Promise<AnalyticsEvent[]> {
-    const system = this.systems.find(s => s.internalName === 'source_system');
-    return await fetchEventsFromSystem(system);
-  }
-
-  protected async sendData(item: AnalyticsEvent): Promise<IntegrationMessageReturn> {
-    try {
-      await sendToAnalytics(item);
-      return {success: true, message: 'Event sent'};
-    } catch (error) {
-      return {success: false, message: error.message};
-    }
-  }
-
-  protected defineMetadata(): Array<Metadata> {
-    return [
-      {fieldName: 'eventId', fieldLabel: 'Event ID', fieldType: 'TEXT'},
-      {fieldName: 'eventType', fieldLabel: 'Event Type', fieldType: 'TEXT'},
-      {fieldName: 'timestamp', fieldLabel: 'Timestamp', fieldType: 'DATETIME'},
-    ];
-  }
-}
-```
-
-### NoDeltaBatchIntegrationFlow
-
-Use for batch one-way data transfer without delta tracking.
-
-**When to use:**
-
-- High-volume one-way transfers
-- Need batch processing
-- No state persistence required
-
-**Additional required method (extends NoDeltaIntegrationFlow):**
-
-```typescript
-protected async batchSendData(items: T[]): Promise<IntegrationMessageReturnBatch[]>
-```
-
-**Example:**
-
-```typescript
-class BulkExportIntegration extends NoDeltaBatchIntegrationFlow<ExportItem> {
-  constructor(event: ProcessorPayload, context?: LambdaContext) {
-    super(event, context);
-    this.packageSize = 500;
-  }
-
-  protected async batchSendData(items: ExportItem[]): Promise<IntegrationMessageReturnBatch[]> {
-    const results = await bulkExportItems(items);
-    return results.map(r => ({
-      message: r.success ? 'Item exported' : r.error,
-      data: r.data,
-      status: r.success ? 'SUCCESS' : 'FAIL',
-    }));
-  }
-
-  protected async loadSourceSystemData(): Promise<ExportItem[]> {
-    /* ... */
-  }
-  protected defineMetadata(): Array<Metadata> {
-    /* ... */
-  }
-}
-```
-
-## Constructor Pattern
-
-All integration flows follow a consistent constructor pattern:
-
-```typescript
-constructor(
-  event: ProcessorPayload,
-  keyFields?: Array<keyof T>,
-  deltaFields?: Array<keyof T>,
-  context?: LambdaContext,
-  debug?: boolean
-) {
-  super(event, keyFields, deltaFields, context, debug);
-  // Custom initialization here
-}
-```
-
-**Parameters:**
-
-- `event: ProcessorPayload` - Execution event containing tenantId, automationId, executionId, etc.
-- `keyFields: Array<keyof T>` - Fields used for record identification (Delta flows only)
-- `deltaFields: Array<keyof T>` - Fields monitored for changes (Delta flows only)
-- `context?: LambdaContext` - Lambda execution context (optional)
-- `debug?: boolean` - Enable debug mode (optional)
-
-## Key Fields and Delta Fields
-
-**Key Fields**: Fields used to uniquely identify records for matching between source and target systems.
-
-```typescript
-// Using a single key field
-['userId'][
-  // Using multiple key fields for composite keys
-  ('companyId', 'employeeId')
-];
-```
-
-**Delta Fields**: Fields that trigger update operations when changed.
-
-```typescript
-// Monitor specific fields for changes
-['name', 'email', 'status'];
-
-// Monitor all fields except key fields
-Object.keys(item).filter(f => !keyFields.includes(f));
-```
-
-## Parameter Management
-
-### Static Methods (use within integration flows)
-
-```typescript
-import {AutomationParameter} from '@tunnelhub/sdk';
-
-// Get parameter value (returns string | null)
-const apiKey = AutomationParameter.getParameter(this.parameters, 'api_key');
-
-// Get required parameter (throws error if not found)
-const secretKey = AutomationParameter.getRequiredParameter(this.parameters, 'secret_key');
-
-// Get boolean parameter (returns boolean)
-const useRetry = AutomationParameter.getBooleanParameter(this.parameters, 'retry_enabled', false);
-```
-
-### Instance Methods (for dynamic persistence)
-
-```typescript
-// Create parameter manager
-const paramManager = new AutomationParameter(this.tenantId, this.automationId, this.environmentId);
-
-// Get parameter from DynamoDB
-const lastSync = await paramManager.getParameter('last_sync_date', null);
-
-// Save parameter to DynamoDB
-await paramManager.saveParameter('last_sync_date', new Date().toISOString());
-```
-
-**Use cases:**
-
-- Static methods: Access configuration from `this.parameters` (passed in event)
-- Instance methods: Persist and retrieve values between executions
-
-## Data Operations
-
-### DataStore & ConversionTable
-
-Use `ConversionTable` to read mapped values and `DataStore` to read or maintain conversion table items.
-
-```typescript
-import {DataStore, ConversionTable} from '@tunnelhub/sdk';
-
-const dataStore = new DataStore(this.executionEvent);
-const conversionTable = new ConversionTable(dataStore);
-
-// Get all items from conversion table
-const allMappings = await conversionTable.getValuesFromConversionTable('departments');
-
-// Get the mapped value for a source value
-const departmentId = await conversionTable.getValueFromConversionTable('departments', 'SALES');
-
-// Create, update, or delete conversion table items directly
-const createdItem = await dataStore.createConversionTableItem({
-  externalCode: 'departments',
-  fromValue: 'SALES',
-  toValue: 'DEPT-001',
-});
-
-await dataStore.updateConversionTableItem({
-  externalCode: 'departments',
-  itemUuid: createdItem.uuid,
-  toValue: 'DEPT-010',
-});
-
-await dataStore.deleteConversionTableItem({
-  externalCode: 'departments',
-  itemUuid: createdItem.uuid,
-});
-```
-
-### Sequences
-
-Generate sequential IDs atomically.
-
-```typescript
-import {Sequences} from '@tunnelhub/sdk';
-
-const sequences = new Sequences(this.executionEvent);
-
-// Get next value from sequence
-const nextId = await sequences.getSequenceNextValue('customer_sequence');
-// Returns: 1001, 1002, 1003, ...
-```
-
-### SQL Tables / Tabelas de Apoio
-
-Use `SqlTables` for structured relational support data associated with the automation. Prefer SQL Tables when the data
-has typed columns, a primary key, pagination, filters, CSV import/export in the platform, or must be visible and
-maintainable in the product. Keep using `DataStore`/`ConversionTable` for simple from/to mappings.
-
-```typescript
-import {SqlTables} from '@tunnelhub/sdk';
-
-const sqlTables = new SqlTables(this.executionEvent);
-
-const inserted = await sqlTables.insertRow('customer-cache', {
-  document: '12345678900',
-  name: 'Customer example',
-  active: true,
-});
-
-const page = await sqlTables.queryRows('customer-cache', {
-  current: 1,
-  pageSize: 20,
-  filter: {
-    document: ['12345678900'],
-  },
-});
-
-await sqlTables.updateRow('customer-cache', inserted.rowId, {
-  name: 'Updated customer',
-});
-
-await sqlTables.deleteRow('customer-cache', inserted.rowId);
-```
-
-SQL Tables require managed runtime support: `runtime: nodejs24.x`, `runInVpc: true`,
-`configuration.sqlTables.enabled: true`, `TH_SQL_TABLES_ENABLED=true`, and the SQL Tables EFS mount provided by
-TunnelHub. For the full API contract, validation behavior, runtime requirements, and troubleshooting, see
-`references/sql-tables.md`.
-
-### System Configuration
-
-Systems are already available in the `this.systems` array in all integration flows.
-
-```typescript
-// Find system by internal name
-const crmSystem = this.systems.find(s => s.internalName === 'salesforce_crm');
-
-if (crmSystem) {
-  const apiUrl = crmSystem.parameters.url;
-  const authType = crmSystem.parameters.authType;
-
-  // Access system-type-specific parameters
-  if (crmSystem.type === 'HTTP' && crmSystem.parameters.authType === 'BASIC') {
-    const username = crmSystem.parameters.user;
-    const password = crmSystem.parameters.password;
-  }
-}
-```
-
-## Utilities
-
-### Promise Utilities
-
-```typescript
-import {promiseAllSettled, promiseWithConcurrency} from '@tunnelhub/sdk';
-
-// Execute multiple promises, ignore failures
-const results = await promiseAllSettled([this.insertAction(item1), this.insertAction(item2), this.insertAction(item3)]);
-
-results.forEach(r => {
-  if (r.status === 'fulfilled') {
-    console.log('Success:', r.value);
-  } else {
-    console.error('Failed:', r.reason);
-  }
-});
-
-// Process array with concurrency control
-const stream = promiseWithConcurrency({
-  array: largeDataset,
-  mapFunction: async item => {
-    return await processItem(item);
-  },
-  options: {concurrency: 10},
-});
-
-for await (const result of stream) {
-  console.log(result);
-}
-```
-
-### Validation Utilities
-
-```typescript
-import {validateMetadata, validateMetadataArray} from '@tunnelhub/sdk';
-
-// Validate single metadata
-validateMetadata({
-  fieldName: 'id',
-  fieldLabel: 'ID',
-  fieldType: 'TEXT',
-});
-
-// Validate array of metadata
-validateMetadataArray([
-  {fieldName: 'id', fieldLabel: 'ID', fieldType: 'TEXT'},
-  {fieldName: 'name', fieldLabel: 'Name', fieldType: 'TEXT'},
-]);
-```
-
-**Important**: `fieldLabel` cannot be 'Action', 'Status', or 'Message' (reserved values).
-
-### HTTP Interceptor
-
-Configure automatic HTTP request/response logging.
-
-```typescript
-import {setupInterceptor} from '@tunnelhub/sdk';
-
-setupInterceptor({
-  enableGlobalFetch: true,
-  enableUndiciFetch: true,
-});
-```
-
-Place this at the top of your integration file to intercept all HTTP calls.
-
-## Logging Strategy
-
-The SDK automatically chooses between realtime (DynamoDB) and batch (Firehose) logging based on data volume.
-
-**Default behavior:**
-
-- ≤100 items → Realtime logging
-- > 1000 items → Batch logging (DynamoDB protection)
-- 100-500 items with ≥80% noDelta ratio → Realtime (fast integration optimization)
-
-**Customize thresholds:**
-
-```typescript
-class CustomIntegration extends DeltaIntegrationFlow<MyType> {
-  protected realtimeLoggingThreshold: number = 200;
-  protected maxRealtimeItems: number = 2000;
-  protected highNoDeltaRatioThreshold: number = 0.9; // 90%
-}
-```
-
-For detailed configuration and examples, see `references/logging-strategy.md`.
-
-## Executing the Integration
-
-```typescript
-const integration = new MyIntegration(event, context);
-
-try {
-  await integration.doIntegration();
-
-  if (integration.hasAnyErrors()) {
-    console.log('Integration completed with errors');
-  } else {
-    console.log('Integration completed successfully');
-  }
-} catch (error) {
-  console.error('Integration failed:', error);
-}
-```
-
-## Error Handling Pattern
-
-```typescript
-protected async insertAction(item: T): Promise<IntegrationMessageReturn> {
-  try {
-    const result = await apiCall(item);
-    return {
-      message: 'Success',
-      data: result
-    };
-  } catch (error) {
-    SDK.log(`Insert failed for item: ${JSON.stringify(item)}`);
-    return {
-      message: error.message,
-      data: null
-    };
-  }
-}
-```
-
-## SDK Helper Methods
-
-```typescript
-// Check if integration has errors
-if (this.hasAnyErrors()) {
-  console.log('Errors detected during execution');
-}
-
-// Enable verbose logging
-SDK.verbose = true;
-
-// Log messages (only when verbose is true)
-SDK.log('Debug information');
-```
-
-## Testing Pattern
-
-```typescript
-import {SDK} from '@tunnelhub/sdk';
-
-// Enable test mode
-SDK.testMode = true;
-
-// Create test integration
-const testEvent = {
-  tenantId: 'test-tenant',
-  environmentId: 'test-env',
-  executionId: 'test-exec',
-  automationId: 'test-auto',
-  expirationPeriod: 30,
-  systems: [],
-  parameters: {},
-} as ProcessorPayload;
-
-const integration = new MyIntegration(testEvent);
-await integration.doIntegration();
-
-expect(integration.hasAnyErrors()).toBeFalsy();
-```
-
-## CI/CD Deployment Workflow
-
-Load `references/ci-cd-deployments.md` when asked to configure automatic deployment, CI/CD, GitHub Actions, or
-`tunnelhub deploy-automation` for a TunnelHub SDK integration.
-
-When configuring GitHub Actions, generate or update `.github/workflows/deploy-tunnelhub.yml`. Do not run
-`tunnelhub deploy-automation` from the local agent environment; include it only as a workflow step.
-
-Key rules:
-
-- Do not use `tunnelhub login` in CI.
-- Do not commit credentials.
-- Use CI/CD credentials through `TH_CLIENT_ID`, `TH_CLIENT_SECRET`, `TH_ENVIRONMENT_ID`, and `TH_API_HOST`.
-- Store `TH_CLIENT_ID` and `TH_CLIENT_SECRET` as secrets, and prefer least-privilege environment allowlists.
-- Generate the ZIP artifact at the path configured by `package.artifact` in `tunnelhub.yml` before the deploy step.
-- Include a required `--message` with human context such as commit message, SHA, author, branch, or run context.
-- Treat tests as conditional: do not add test steps unless the project already uses them or the user asks; if tests run in
-  the workflow, verify they do not include unmocked/debug tests with real calls or real data.
-
-## System Types Reference
-
-TunnelHub supports these system types:
-
-- **DATABASE**: MySQL, PostgreSQL, Oracle, MSSQL, Redshift, MongoDB
-- **HTTP**: REST APIs with various auth types (NONE, BASIC, QUERY_STRING, HEADERS)
-- **FTP/SFTP**: File transfer with encryption options
-- **LDAP**: Directory services
-- **MAIL**: Email servers
-- **SAPRFC**: SAP RFC connections
-- **SMB**: Windows file shares
-- **SOAP**: SOAP web services
-
-Access system parameters via `this.systems` in integration flows.
-
-## Resources
-
-This skill includes detailed reference documentation for specific topics:
-
-- **references/integration-flows.md** - Complete details on all four flow types, methods, and examples
-- **references/logging-strategy.md** - Smart logging strategy configuration and optimization
-- **references/parameters-management.md** - Parameter management patterns and use cases
-- **references/data-operations.md** - DataStore read/write operations, conversion tables, SQL Tables, sequences, system configuration
-- **references/sql-tables.md** - SQL Tables/Tabelas de Apoio helper, runtime requirements, row operations, validation, troubleshooting
-- **references/utilities.md** - Promise utilities, validations, and helpers
-- **references/http-interceptor.md** - HTTP request/response logging configuration
-- **references/system-configuration.md** - System types and parameter structures
-- **references/testing-patterns.md** - Testing patterns, mocking, and test data generation
-- **references/ci-cd-deployments.md** - CI/CD workflow generation for TunnelHub CLI deploys, including conditional test safety checks
-
-Load these reference files when you need detailed information on specific topics.
+Produza automações seguindo os padrões definidos nesta skill. Aplique essa base de estrutura,
+modelo de dados e uso do SDK ao implementar o contrato de negócio de cada automação.
+
+## Antes de implementar
+
+Leia as instruções e os arquivos afetados do projeto, a versão instalada de `@tunnelhub/sdk`,
+seus scripts e `tunnelhub.yml`. Preserve a organização existente em manutenções; não reorganize
+uma automação inteira para aplicar esta skill a uma correção pequena.
+
+Identifique no pedido: origem, destino, registros abrangidos, operações permitidas, identidade,
+campos integrados, exclusões do escopo e comportamento de reprocessamento. Não invente um
+mapeamento ou contrato de API para completar uma lacuna. Avance no que estiver definido e
+pergunte somente quando a informação ausente mudar materialmente a entrega.
+
+Leia [Padrões de implementação](references/implementation-patterns.md) ao criar uma automação
+ou alterar seu modelo, mapeamento ou divisão de responsabilidades.
+
+## Estrutura e responsabilidades
+
+| Parte | Responsabilidade |
+| --- | --- |
+| `src/index.ts` | Receber evento/contexto, criar uma instância de `Integration` e executar `AutomationExecution.executeAutomation`. |
+| `src/classes/integration.ts` | Estender o fluxo adequado, conectar os serviços e implementar carga, normalização e ações. |
+| `src/types/integration.ts` | Definir `IntegrationModel`, o modelo normalizado usado na comparação e no monitoramento. |
+| `src/types/<sistema>.ts` | Tipos e enumerações dos contratos externos efetivamente utilizados. |
+| `src/services/<sistema>Service.ts` | Encapsular transporte, autenticação, paginação e validação da resposta daquele sistema. |
+| `src/classes/conversions.ts` | Conversões de domínio reutilizadas ou que precisam de teste isolado; criar quando necessário. |
+| `src/metadata.ts` | Definir as colunas operacionais, validadas com `satisfies Metadata<IntegrationModel>[]`. |
+
+Essa é a organização padrão para uma automação nova. Preserve caminhos equivalentes já adotados,
+como `src/core/integration.ts`, `src/integration.ts`, serviços `*Api.ts` e `util/conversions.ts`.
+Crie somente os arquivos necessários. Clientes SOAP gerados ficam separados do código de negócio.
+Não introduza frameworks internos, fábricas, repositórios genéricos ou camadas que só repassam chamadas.
+
+## Modelo e transformação
+
+- Use um `IntegrationModel` normalizado com campos de negócio explícitos, compartilhado pela carga
+  da origem e do destino. Nos campos de identidade e delta, prefira valores escalares comparáveis.
+- Mantenha separados o tipo recebido da origem, o modelo de integração e o payload exigido pelo destino.
+  Não use o envelope HTTP/SOAP nem objetos `*WsVo` como o modelo de comparação.
+- Normalize datas, códigos, documentos e opcionais na carga. Monte o payload do destino na ação de
+  envio, com uma função ou método explícito quando necessário.
+- Declare `keyFields` e `deltaFields` explicitamente e tipados. Chaves identificam o registro;
+  delta contém os campos de negócio cuja mudança exige atualização. Não derive delta de
+  `Object.keys`, não inclua respostas, timestamps de execução ou credenciais.
+- Não sobrescreva `hasInvalidDelta` apenas para acomodar um modelo de payload aninhado.
+  Primeiro mantenha os campos comparados no modelo normalizado. Use extensão do SDK somente para
+  uma necessidade real do contrato que o padrão não atende, com validação correspondente.
+- Metadata acompanha o modelo e oferece identificação, contexto e campos úteis à investigação.
+  Não resuma toda a informação operacional em um campo contendo JSON.
+
+## Fluxos e execução
+
+| Requisito | Fluxo |
+| --- | --- |
+| Comparar o conjunto de origem com a imagem anterior | `DeltaIntegrationFlow` |
+| Mesmo requisito com API de destino que recebe lotes | `BatchDeltaIntegrationFlow` |
+| Processar cada registro recebido, sem comparação entre execuções | `NoDeltaIntegrationFlow` |
+| Mesmo requisito com envio em lote | `NoDeltaBatchIntegrationFlow` |
+
+Leia [Contratos dos fluxos](references/integration-flows.md) ao implementar ou alterar esses métodos.
+Volume sozinho não determina o uso de batch. Delta não significa sincronização bidirecional.
+
+Deixe iteração, filas, cálculo de delta, persistência da imagem, logs e estatísticas com o SDK.
+Não reimplemente `doIntegration` ou `process*Queue`, nem crie um motor paralelo no handler.
+Use `AutomationExecution.executeAutomation` em produção; `doIntegration` direto cabe em teste isolado.
+
+Implemente a carga inicial do destino no mesmo modelo quando houver comparação delta com cadastros
+existentes. Não substitua essa leitura por `[]` como atalho. Esse retorno só cabe se a primeira carga
+sem leitura for parte do contrato, com identidade e repetição seguras. Uma extração incompleta ou
+uma falha de consulta nunca deve se passar por uma lista vazia bem-sucedida.
+
+## Configuração e recursos da plataforma
+
+| Necessidade | Padrão |
+| --- | --- |
+| Conexão e credenciais | Sistemas vinculados em `this.systems`; valide nome interno, tipo e configuração necessária. |
+| Comportamento configurável do fluxo | `AutomationParameter` com `this.parameters`; parâmetros apenas quando necessários ao escopo. |
+| De/para mantido pela operação | `ConversionTable` com `DataStore`; não substitua por um grande parâmetro JSON de mapeamento. |
+| Conversão fixa de formato ou enumeração documentada | Função explícita de conversão, sem torná-la configuração artificial. |
+| Dados relacionais de apoio | `SqlTables`, quando houver essa necessidade e o runtime compatível. |
+| Numeração sequencial | `Sequences`, quando prevista pelo negócio. |
+
+Não implemente acesso direto às tabelas internas para reproduzir esses recursos. Não faça scan
+na tabela `TunnelHub-prd`. Para cursores, confirme a persistência suportada pela versão instalada
+e só avance sobre dados confirmados; veja [Parâmetros](references/parameters-management.md).
+
+## Falhas e monitoramento
+
+Ações individuais retornam `{message, data}` em sucesso e lançam exceção em falha.
+`success: false` não pertence a `IntegrationMessageReturn` e não informa falha ao SDK.
+Não capture um erro para devolver uma mensagem de falha como retorno bem-sucedido.
+
+Em batch, retorne um `IntegrationMessageReturnBatch` por entrada, na mesma ordem, com `status`
+correto; preserve falhas parciais. O método de NoDeltaBatch é `sendDataInBatch`.
+
+O cliente deve conferir erros HTTP e rejeições de negócio, inclusive em respostas HTTP 200.
+Não converta falha em `[]`, `{}` ou sucesso. Retentativas de escrita precisam respeitar a
+idempotência do destino. Preserve o padrão de erros do cliente sem registrar credenciais,
+envelopes sensíveis ou o evento completo.
+
+O SDK já registra o resultado por item. Use mensagens operacionais claras e mantenha a estratégia
+padrão de logging, salvo necessidade demonstrada. Interceptação HTTP não substitui os logs do fluxo
+nem garante mascaramento de corpos; consulte a referência antes de habilitá-la.
+
+## Verificação da entrega
+
+Antes de concluir, revise o código contra os padrões desta skill: modelo separado dos payloads,
+uso dos recursos nativos, operações contratadas implementadas e falhas visíveis ao SDK.
+Um método obrigatório vazio não conta como implementação de uma operação prevista no escopo.
+
+Execute a checagem de tipos e os testes pertinentes existentes. Acrescente regressão quando
+houver risco em transformação, delta, paginação, falhas parciais ou persistência. Não crie testes
+que substituem a própria regra por um mock. `SDK.testMode` não bloqueia todas as chamadas externas;
+leia [Testes](references/testing-patterns.md) antes de executar o fluxo em teste.
+
+Preserve o build existente; em projetos novos, use o empacotamento do SDK (`tunnelhub-sdk-esbuild`)
+quando compatível. Confira runtime, entrypoint e ZIP indicado em `package.artifact`. SDK 4.1.5 e os
+templates atuais usam Node.js 24; confirme a compatibilidade da versão efetivamente utilizada.
+Build e testes com mocks não comprovam homologação nos sistemas do cliente.
+
+Para configurar deploy, leia [CI/CD](references/ci-cd-deployments.md). Gere ou ajuste
+`.github/workflows/deploy-tunnelhub.yml`; execute `tunnelhub deploy-automation` somente pelo
+workflow, usando as credenciais CI/CD previstas. Implementar uma automação não implica executar
+uma carga real, ativar agendamento ou fazer deploy sem que isso faça parte do pedido.
+
+## Referências por necessidade
+
+Não carregue todas as referências de uma vez. As declarações e a implementação do SDK instalado
+prevalecem sobre um exemplo de outra versão; não silencie incompatibilidades com `as any`.
+
+- [Padrões de implementação](references/implementation-patterns.md): organização, modelo, transformação e exemplo mínimo.
+- [Fluxos](references/integration-flows.md): contratos, imagem delta, ações, batch e hooks.
+- [Parâmetros](references/parameters-management.md): leitura, configuração e checkpoints.
+- [Sistemas](references/system-configuration.md): tipos de conexão e autenticação.
+- [Dados de apoio](references/data-operations.md): conversões, CRUD e sequências.
+- [SQL Tables](references/sql-tables.md): contrato relacional e requisitos de runtime.
+- [Logging](references/logging-strategy.md): escolha de estratégia e ajustes.
+- [HTTP](references/http-interceptor.md): configuração e limites da interceptação.
+- [Utilitários](references/utilities.md): concorrência, validação de metadata e flags do SDK.
+- [Testes](references/testing-patterns.md): isolamento e verificações de comportamento.
+- [CI/CD](references/ci-cd-deployments.md): credenciais, artefato e workflow de publicação.

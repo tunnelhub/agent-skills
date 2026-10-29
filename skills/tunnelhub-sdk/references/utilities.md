@@ -1,870 +1,107 @@
-# Utilities
+# Utilitários do SDK
 
-This reference explains how to use utility functions in TunnelHub SDK for promises, validations, and other common operations.
+Use os utilitários abaixo quando houver uma necessidade concreta no fluxo. Contratos conferidos em `src/util/promises.ts`, `src/util/validations.ts` e `src/index.ts` do SDK 4.1.5; confira a versão instalada ao modificar um projeto existente.
 
-## Overview
+## Promessas independentes
 
-TunnelHub SDK provides these utilities:
+`promiseAllSettled(promises)` recebe um array de promessas e retorna resultados na ordem da entrada. Cada resultado tem `status: 'fulfilled'` e `value`, ou `status: 'rejected'` e `reason`. Rejeições das promessas recebidas viram resultados; não fazem o conjunto rejeitar automaticamente.
 
-1. **Promise Utilities** - `promiseAllSettled`, `promiseWithConcurrency`
-2. **Validation Utilities** - `validateMetadata`, `validateMetadataArray`
-3. **SDK Helpers** - `SDK.log`, `SDK.verbose`, `SDK.testMode`
+Use quando precisar aguardar **todas** as operações independentes e avaliar cada falha. Não use como forma de ignorar erros. O helper não limita concorrência, não faz retentativas e não cancela operações iniciadas. Se `Promise.allSettled` já atende ao projeto, não precisa trocá-lo apenas para usar um helper do SDK.
 
-## Promise Utilities
-
-### promiseAllSettled
+Exemplo completo para leituras independentes que devem todas ter sucesso:
 
 ```typescript
-export const promiseAllSettled = (promises: Promise<any>[]): Promise<PromiseSettledResult[]>
-```
-
-Execute multiple promises and return their settled status, regardless of success or failure. This is useful when you want to continue processing even if some promises fail.
-
-**Parameters:**
-- `promises`: Array of promises to execute
-
-**Returns:**
-- `Promise<PromiseSettledResult[]>` - Array of results with status and value/reason
-
-**Result Structure:**
-```typescript
-interface PromiseFulfilledResult {
-  status: 'fulfilled';
-  value: any;
-}
-
-interface PromiseRejectedResult {
-  status: 'rejected';
-  reason: any;
-}
-
-type PromiseSettledResult = PromiseFulfilledResult | PromiseRejectedResult;
-```
-
-**Example:**
-```typescript
-import { promiseAllSettled } from '@tunnelhub/sdk';
-
-class UserSyncIntegration extends DeltaIntegrationFlow<User> {
-  protected async processInsertQueue(): Promise<void> {
-    // Process all inserts, continue even if some fail
-    const promises = this.insertQueue.map(item => this.insertAction(item));
-
-    const results = await promiseAllSettled(promises);
-
-    let successCount = 0;
-    let failureCount = 0;
-
-    results.forEach((result, index) => {
-      const item = this.insertQueue[index];
-
-      if (result.status === 'fulfilled') {
-        successCount++;
-        console.log(`✓ Inserted user ${item.userId}`);
-      } else {
-        failureCount++;
-        console.error(`✗ Failed to insert user ${item.userId}:`, result.reason);
-      }
-    });
-
-    console.log(`Processed ${successCount} successful, ${failureCount} failed`);
-
-    if (failureCount > 0) {
-      this.errorIndicator = true;
-    }
-  }
-}
-```
-
-**Use Cases:**
-- Batch operations where individual failures shouldn't stop the entire batch
-- Parallel processing with error handling
-- Collecting results from multiple independent operations
-
-**Advantages over Promise.all:**
-- Doesn't reject on first failure
-- Executes all promises regardless of individual results
-- Provides detailed error information
-
-### promiseWithConcurrency
-
-```typescript
-export const promiseWithConcurrency = <T, R>(params: {
-  array: T[];
-  mapFunction: (item: T, options?: Pick<ArrayOptions, 'signal'>) => Promise<R>;
-  options: ArrayOptions;
-}): Readable<R>
-```
-
-Process an array of items concurrently using Node.js streams. This provides controlled concurrency with backpressure handling.
-
-**Parameters:**
-- `array`: Array of items to process
-- `mapFunction`: Async function to transform each item
-- `options`: Stream processing options, including `concurrency` and `signal`
-
-**Returns:**
-- `Readable<R>` - Stream of transformed items
-
-**Options:**
-```typescript
-interface ArrayOptions {
-  concurrency?: number;  // Number of concurrent operations (default: varies by Node version)
-  signal?: AbortSignal;  // Signal for cancellation
-}
-```
-
-**Example:**
-```typescript
-import { promiseWithConcurrency } from '@tunnelhub/sdk';
-
-class LargeDataSync extends DeltaIntegrationFlow<MyType> {
-  protected async loadSourceSystemData(): Promise<MyType[]> {
-    // Large dataset - process with controlled concurrency
-    const allItems = [];
-
-    const stream = promiseWithConcurrency({
-      array: hugeDataset,
-      mapFunction: async (item) => {
-        return await this.fetchAndTransformItem(item);
-      },
-      options: { concurrency: 10 } // Process 10 items at a time
-    });
-
-    for await (const item of stream) {
-      allItems.push(item);
-    }
-
-    return allItems;
-  }
-}
-```
-
-**Example with Pagination:**
-```typescript
-class PaginatedSync extends DeltaIntegrationFlow<MyType> {
-  protected async loadSourceSystemData(): Promise<MyType[]> {
-    let page = 1;
-    let hasMore = true;
-    const allItems = [];
-
-    while (hasMore) {
-      // Fetch pages concurrently
-      const pagePromises = Array.from({ length: 5 }, (_, i) =>
-        this.fetchPage(page + i)
-      );
-
-      const results = await promiseAllSettled(pagePromises);
-
-      for (const result of results) {
-        if (result.status === 'fulfilled' && result.value.items.length > 0) {
-          allItems.push(...result.value.items);
-        } else {
-          hasMore = false;
-          break;
-        }
-      }
-
-      page += 5;
-
-      if (allItems.length >= 10000) {
-        hasMore = false;
-      }
-    }
-
-    return allItems;
-  }
-}
-```
-
-**Example with Cancellation:**
-```typescript
-class CancelableSync extends DeltaIntegrationFlow<MyType> {
-  private abortController = new AbortController();
-
-  protected async loadSourceSystemData(): Promise<MyType[]> {
-    const allItems = [];
-
-    const stream = promiseWithConcurrency({
-      array: hugeDataset,
-      mapFunction: async (item, options) => {
-        if (options?.signal?.aborted) {
-          return null;
-        }
-
-        return await this.processItem(item);
-      },
-      options: {
-        concurrency: 20,
-        signal: this.abortController.signal
-      }
-    });
-
-    try {
-      for await (const item of stream) {
-        if (item !== null) {
-          allItems.push(item);
-        }
-      }
-    } catch (error) {
-      if (error.name !== 'AbortError') {
-        throw error;
-      }
-    }
-
-    return allItems;
-  }
-
-  protected async beforeIntegration(): Promise<void> {
-    // Cancel if running too long
-    setTimeout(() => {
-      this.abortController.abort();
-    }, 300000); // 5 minutes
-  }
-}
-```
-
-**Use Cases:**
-- Processing large datasets with memory efficiency
-- Controlled concurrency to avoid overwhelming APIs
-- Batch processing with backpressure
-- Cancellable operations
-
-**Advantages:**
-- Memory efficient (streams vs arrays)
-- Backpressure handling
-- Configurable concurrency
-- Cancellation support
-
-## Validation Utilities
-
-### validateMetadata
-
-```typescript
-export function validateMetadata(metadata: Metadata): void
-```
-
-Validate a single Metadata object to ensure it has valid fieldLabel values.
-
-**Parameters:**
-- `metadata`: Metadata object to validate
-
-**Throws:**
-- `Error` if fieldLabel is required or prohibited
-
-**Prohibited Values:**
-`fieldLabel` cannot be 'Action', 'Status', or 'Message' (reserved for UI).
-
-**Example:**
-```typescript
-import { validateMetadata } from '@tunnelhub/sdk';
-
-class MyIntegration extends DeltaIntegrationFlow<MyType> {
-  protected defineMetadata(): Array<Metadata> {
-    const metadata = [
-      { fieldName: 'id', fieldLabel: 'ID', fieldType: 'TEXT' },
-      { fieldName: 'name', fieldLabel: 'Name', fieldType: 'TEXT' }
-    ];
-
-    // Validate all metadata items
-    metadata.forEach(validateMetadata);
-
-    return metadata;
-  }
-}
-```
-
-**Invalid Examples:**
-```typescript
-// These will throw errors
-validateMetadata({ fieldName: 'id', fieldLabel: 'Action', fieldType: 'TEXT' });  // Prohibited
-validateMetadata({ fieldName: 'id', fieldLabel: 'Status', fieldType: 'TEXT' });  // Prohibited
-validateMetadata({ fieldName: 'id', fieldLabel: 'Message', fieldType: 'TEXT' }); // Prohibited
-```
-
-### validateMetadataArray
-
-```typescript
-export function validateMetadataArray(metadataArray: Metadata[]): void
-```
-
-Validate an array of Metadata objects.
-
-**Parameters:**
-- `metadataArray`: Array of metadata objects to validate
-
-**Throws:**
-- `Error` if input is not an array or any item is invalid
-
-**Example:**
-```typescript
-import { validateMetadataArray } from '@tunnelhub/sdk';
-
-class MyIntegration extends DeltaIntegrationFlow<MyType> {
-  protected defineMetadata(): Array<Metadata> {
-    const metadata = [
-      { fieldName: 'id', fieldLabel: 'ID', fieldType: 'TEXT' },
-      { fieldName: 'name', fieldLabel: 'Name', fieldType: 'TEXT' },
-      { fieldName: 'email', fieldLabel: 'Email', fieldType: 'TEXT' },
-      { fieldName: 'active', fieldLabel: 'Active', fieldType: 'BOOLEAN' }
-    ];
-
-    // Validate entire array
-    validateMetadataArray(metadata);
-
-    return metadata;
-  }
-}
-```
-
-**Custom Error Handling:**
-```typescript
-class MyIntegration extends DeltaIntegrationFlow<MyType> {
-  protected defineMetadata(): Array<Metadata> {
-    const metadata = [
-      { fieldName: 'id', fieldLabel: 'ID', fieldType: 'TEXT' },
-      { fieldName: 'name', fieldLabel: 'Name', fieldType: 'TEXT' }
-    ];
-
-    try {
-      validateMetadataArray(metadata);
-      return metadata;
-    } catch (error) {
-      console.error('Invalid metadata:', error.message);
-      // Provide fallback metadata
-      return [
-        { fieldName: 'id', fieldLabel: 'ID', fieldType: 'TEXT' }
-      ];
-    }
-  }
-}
-```
-
-**Use Cases:**
-- Validate metadata before creating integration
-- Ensure UI compatibility
-- Prevent runtime errors from invalid field labels
-- Data structure validation
-
-## SDK Helpers
-
-### SDK.log
-
-```typescript
-SDK.log(message: string): void
-```
-
-Log a message to console. Only outputs when `SDK.verbose` is `true`.
-
-**Parameters:**
-- `message`: Message to log
-
-**Example:**
-```typescript
-import { SDK } from '@tunnelhub/sdk';
-
-class MyIntegration extends DeltaIntegrationFlow<MyType> {
-  protected async insertAction(item: MyType): Promise<IntegrationMessageReturn> {
-    SDK.log(`Inserting item: ${JSON.stringify(item)}`);
-
-    try {
-      const result = await fetch('https://api.example.com/items', {
-        method: 'POST',
-        body: JSON.stringify(item)
-      });
-
-      SDK.log(`Insert successful: ${item.id}`);
-
-      return { message: 'Item created', data: result };
-    } catch (error) {
-      SDK.log(`Insert failed for item ${item.id}: ${error.message}`);
-
-      return { message: error.message, data: null };
-    }
-  }
-}
-```
-
-### SDK.verbose
-
-```typescript
-SDK.verbose: boolean
-```
-
-Enable or disable verbose logging. When `true`, `SDK.log()` outputs to console. When `false`, no output.
-
-**Default**: `false`
-
-**Example:**
-```typescript
-import { SDK } from '@tunnelhub/sdk';
-
-// Enable verbose logging for debugging
-SDK.verbose = true;
-
-class MyIntegration extends DeltaIntegrationFlow<MyType> {
-  protected async beforeIntegration(): Promise<void> {
-    SDK.log(`Starting integration for tenant ${this.tenantId}`);
-    SDK.log(`Expected items: ${this.sourceSystemData.length}`);
-  }
-}
-```
-
-**Dynamic Control:**
-```typescript
-class MyIntegration extends DeltaIntegrationFlow<MyType> {
-  constructor(event: ProcessorPayload, context?: LambdaContext) {
-    super(event, ['id'], ['name'], context);
-
-    // Enable verbose mode based on parameter
-    SDK.verbose = AutomationParameter.getBooleanParameter(
-      this.parameters,
-      'debug_mode',
-      false
-    );
-  }
-}
-```
-
-### SDK.testMode
-
-```typescript
-SDK.testMode: boolean
-```
-
-Indicate whether the integration is running in test mode. Used for testing and mocking.
-
-**Default**: `false`
-
-**Example:**
-```typescript
-import { SDK } from '@tunnelhub/sdk';
-
-SDK.testMode = true; // Enable test mode
-
-const testEvent = {
-  tenantId: 'test-tenant',
-  environmentId: 'test-env',
-  executionId: 'test-exec',
-  automationId: 'test-auto',
-  expirationPeriod: 30,
-  systems: [],
-  parameters: {}
-} as ProcessorPayload;
-
-const integration = new MyIntegration(testEvent);
-await integration.doIntegration();
-```
-
-## Complete Examples
-
-### Example 1: Concurrent Processing with Error Handling
-
-```typescript
-import {
-  DeltaIntegrationFlow,
-  IntegrationMessageReturn,
-  ProcessorPayload,
-  LambdaContext,
-  Metadata,
-  promiseAllSettled
-} from '@tunnelhub/sdk';
-
-type Order = {
-  orderId: string;
-  customerId: string;
-  amount: number;
-};
-
-class OrderSyncIntegration extends DeltaIntegrationFlow<Order> {
-  protected async insertAction(item: Order): Promise<IntegrationMessageReturn> {
-    const response = await fetch('https://erp.example.com/api/orders', {
-      method: 'POST',
-      body: JSON.stringify(item)
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return { message: 'Order created' };
-  }
-
-  protected async processInsertQueue(): Promise<void> {
-    // Process all orders concurrently
-    const promises = this.insertQueue.map(item =>
-      this.insertAction(item)
-    );
-
-    const results = await promiseAllSettled(promises);
-
-    // Analyze results
-    const successful = results.filter(r => r.status === 'fulfilled');
-    const failed = results.filter(r => r.status === 'rejected');
-
-    console.log(`Processed ${successful.length} orders successfully`);
-
-    if (failed.length > 0) {
-      console.error(`Failed to process ${failed.length} orders:`);
-
-      failed.forEach((result, index) => {
-        const item = this.insertQueue[successful.length + index];
-        console.error(`  - ${item.orderId}: ${result.reason.message}`);
-      });
-
-      this.errorIndicator = true;
+import {promiseAllSettled} from '@tunnelhub/sdk';
+
+export async function readAll<T>(readers: Array<() => Promise<T>>): Promise<T[]> {
+  const results = await promiseAllSettled(readers.map(read => read()));
+  const values: T[] = [];
+  const errors: unknown[] = [];
+
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      values.push(result.value);
+    } else {
+      errors.push(result.reason);
     }
   }
 
-  protected async loadSourceSystemData(): Promise<Order[]> { /* ... */ }
-  protected async loadTargetSystemData(): Promise<Order[]> { /* ... */ }
-  protected async updateAction(oldItem: Order, newItem: Order): Promise<IntegrationMessageReturn> { /* ... */ }
-  protected async deleteAction(item: Order): Promise<IntegrationMessageReturn> { /* ... */ }
-  protected defineMetadata(): Array<Metadata> { /* ... */ }
-}
-```
-
-### Example 2: Large Dataset Processing with Concurrency
-
-```typescript
-import {
-  DeltaIntegrationFlow,
-  ProcessorPayload,
-  LambdaContext,
-  Metadata,
-  promiseWithConcurrency
-} from '@tunnelhub/sdk';
-
-type Product = {
-  productId: string;
-  name: string;
-  price: number;
-};
-
-class ProductSyncIntegration extends DeltaIntegrationFlow<Product> {
-  protected async loadSourceSystemData(): Promise<Product[]> {
-    // Simulate large dataset (50,000 items)
-    const largeDataset = Array.from({ length: 50000 }, (_, i) => ({
-      productId: `PROD-${i}`,
-      name: `Product ${i}`,
-      price: Math.random() * 100
-    }));
-
-    const allProducts = [];
-
-    const stream = promiseWithConcurrency({
-      array: largeDataset,
-      mapFunction: async (item) => {
-        // Simulate async processing (e.g., API call, transformation)
-        await new Promise(resolve => setTimeout(resolve, 10));
-
-        // Add additional data
-        return {
-          ...item,
-          category: this.getCategory(item.productId),
-          inStock: Math.random() > 0.1
-        };
-      },
-      options: { concurrency: 50 } // Process 50 items at a time
-    });
-
-    for await (const product of stream) {
-      allProducts.push(product);
-    }
-
-    console.log(`Loaded ${allProducts.length} products`);
-
-    return allProducts;
+  if (errors.length > 0) {
+    throw new AggregateError(errors, 'Uma ou mais leituras falharam.');
   }
-
-  private getCategory(productId: string): string {
-    const hash = productId.split('-')[1];
-    const categories = ['Electronics', 'Clothing', 'Books', 'Home', 'Toys'];
-    return categories[hash % categories.length];
-  }
-
-  // ... other methods
+  return values;
 }
 ```
 
-### Example 3: Validating Metadata
+Não chame `insertAction`, `updateAction`, `deleteAction` ou `sendData` manualmente para paralelizar filas que o fluxo já controla. Isso contorna registros por item, indicadores de falha e atualização de delta. Se o destino suporta lotes, escolha o fluxo batch e implemente seu contrato de resultados; consulte [integration-flows.md](integration-flows.md).
+
+## Concorrência limitada
+
+`promiseWithConcurrency({array, mapFunction, options})` usa `Readable.from(array).map(...)` e retorna um stream. O trabalho precisa ser consumido, por exemplo com `for await`. A entrada continua sendo um array em memória; esse helper não implementa paginação da origem.
+
+- `mapFunction(item, options?)` é assíncrona e pode receber `options.signal`.
+- `options.concurrency` limita o trabalho simultâneo. Escolha-o pelo contrato e pelos limites do serviço, sem um valor universal.
+- `options.signal` permite cancelamento do stream. Propague o sinal para a operação externa quando ela o aceitar; um cancelamento não desfaz uma gravação já confirmada.
+- Uma rejeição do mapper faz o consumo falhar; não há conversão automática para resultados do tipo `allSettled`.
+- Limitar concorrência não equivale a limitar requisições por segundo. Se houver uma cota temporal, trate-a conforme o serviço.
+
+Exemplo completo de enriquecimento por leituras, preservando a gestão de envios do fluxo:
 
 ```typescript
-import {
-  DeltaIntegrationFlow,
-  ProcessorPayload,
-  LambdaContext,
-  Metadata,
-  validateMetadataArray
-} from '@tunnelhub/sdk';
+import {promiseWithConcurrency} from '@tunnelhub/sdk';
 
-type Employee = {
-  employeeId: string;
-  name: string;
-  email: string;
-  department: string;
-  salary: number;
-};
-
-class EmployeeSyncIntegration extends DeltaIntegrationFlow<Employee> {
-  protected defineMetadata(): Array<Metadata> {
-    const metadata = [
-      { fieldName: 'employeeId', fieldLabel: 'Employee ID', fieldType: 'TEXT' },
-      { fieldName: 'name', fieldLabel: 'Full Name', fieldType: 'TEXT' },
-      { fieldName: 'email', fieldLabel: 'Email Address', fieldType: 'TEXT' },
-      { fieldName: 'department', fieldLabel: 'Department', fieldType: 'TEXT' },
-      { fieldName: 'salary', fieldLabel: 'Annual Salary', fieldType: 'NUMBER' }
-    ];
-
-    try {
-      validateMetadataArray(metadata);
-      console.log('Metadata validation passed');
-      return metadata;
-    } catch (error) {
-      console.error('Invalid metadata:', error.message);
-
-      // Remove problematic field and retry
-      const fixedMetadata = metadata.filter(
-        m => !['Action', 'Status', 'Message'].includes(m.fieldLabel)
-      );
-
-      validateMetadataArray(fixedMetadata);
-      return fixedMetadata;
-    }
-  }
-
-  // ... other methods
-}
-```
-
-### Example 4: Conditional Verbose Logging
-
-```typescript
-import {
-  DeltaIntegrationFlow,
-  ProcessorPayload,
-  LambdaContext,
-  Metadata,
-  SDK,
-  AutomationParameter
-} from '@tunnelhub/sdk';
-
-type Transaction = {
-  transactionId: string;
-  amount: number;
-  type: string;
-};
-
-class TransactionSyncIntegration extends DeltaIntegrationFlow<Transaction> {
-  constructor(event: ProcessorPayload, context?: LambdaContext) {
-    super(event, ['transactionId'], ['amount', 'type'], context);
-
-    // Enable verbose logging based on parameter
-    SDK.verbose = AutomationParameter.getBooleanParameter(
-      this.parameters,
-      'verbose_logging',
-      false
-    );
-  }
-
-  protected async insertAction(item: Transaction): Promise<IntegrationMessageReturn> {
-    SDK.log(`Inserting transaction: ${item.transactionId}`);
-    SDK.log(`Amount: ${item.amount}, Type: ${item.type}`);
-
-    try {
-      const response = await fetch('https://bank.example.com/api/transactions', {
-        method: 'POST',
-        body: JSON.stringify(item)
-      });
-
-      if (response.ok) {
-        SDK.log(`Transaction ${item.transactionId} inserted successfully`);
-        return { message: 'Transaction created' };
-      } else {
-        SDK.log(`Failed to insert transaction ${item.transactionId}`);
-        return { message: `HTTP ${response.status}` };
-      }
-    } catch (error) {
-      SDK.log(`Error inserting transaction ${item.transactionId}: ${error.message}`);
-      return { message: error.message };
-    }
-  }
-
-  // ... other methods
-}
-```
-
-## Best Practices
-
-### 1. Use promiseAllSettled for Batch Operations
-
-```typescript
-// Good: Continue processing even if some fail
-const results = await promiseAllSettled(
-  items.map(item => this.processItem(item))
-);
-
-// Analyze results and handle errors
-const successful = results.filter(r => r.status === 'fulfilled');
-const failed = results.filter(r => r.status === 'rejected');
-```
-
-### 2. Use promiseWithConcurrency for Large Datasets
-
-```typescript
-// Good: Process with controlled concurrency
-const stream = promiseWithConcurrency({
-  array: largeDataset,
-  mapFunction: async (item) => await processItem(item),
-  options: { concurrency: 20 }
-});
-
-for await (const result of stream) {
-  // Process result
-}
-```
-
-### 3. Always Validate Metadata
-
-```typescript
-// Good: Validate before using
-validateMetadataArray(metadata);
-return metadata;
-
-// Also good: Handle validation errors
-try {
-  validateMetadataArray(metadata);
-  return metadata;
-} catch (error) {
-  console.error('Invalid metadata:', error.message);
-  return getFallbackMetadata();
-}
-```
-
-### 4. Use SDK.log for Debugging
-
-```typescript
-// Good: Conditional logging
-SDK.log(`Processing item ${item.id}`);
-SDK.log(`Result: ${JSON.stringify(result)}`);
-
-// Enable verbose mode when needed
-SDK.verbose = true;
-```
-
-### 5. Control Concurrency Based on API Limits
-
-```typescript
-// Good: Adjust concurrency based on API limits
-const apiConcurrency = AutomationParameter.getParameter(
-  this.parameters,
-  'api_concurrency'
-);
-
-const concurrency = apiConcurrency ? parseInt(apiConcurrency) : 10;
-
-const stream = promiseWithConcurrency({
-  array: items,
-  mapFunction: async (item) => await apiCall(item),
-  options: { concurrency }
-});
-```
-
-## Common Patterns
-
-### Pattern 1: Retry Failed Operations
-
-```typescript
-protected async processWithRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries = 3
-): Promise<T> {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (attempt === maxRetries) throw error;
-
-      SDK.log(`Attempt ${attempt} failed, retrying...`);
-
-      // Exponential backoff
-      await new Promise(resolve =>
-        setTimeout(resolve, Math.pow(2, attempt) * 1000)
-      );
-    }
-  }
-
-  throw new Error('Max retries exceeded');
-}
-
-protected async insertAction(item: MyType): Promise<IntegrationMessageReturn> {
-  return await this.processWithRetry(async () => {
-    const response = await fetch('https://api.example.com/items', {
-      method: 'POST',
-      body: JSON.stringify(item)
-    });
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    return { message: 'Item created' };
-  });
-}
-```
-
-### Pattern 2: Batch with Concurrency
-
-```typescript
-protected async processInBatches<T, R>(
+export async function enrichItems<T, R>(
   items: T[],
-  batchSize: number,
+  readDetails: (item: T, signal?: AbortSignal) => Promise<R>,
   concurrency: number,
-  processFn: (item: T) => Promise<R>
 ): Promise<R[]> {
-  const allResults: R[] = [];
+  const results: R[] = [];
+  const stream = promiseWithConcurrency({
+    array: items,
+    mapFunction: (item, options) => readDetails(item, options?.signal),
+    options: {concurrency},
+  });
 
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-
-    const stream = promiseWithConcurrency({
-      array: batch,
-      mapFunction: processFn,
-      options: { concurrency }
-    });
-
-    for await (const result of stream) {
-      allResults.push(result);
-    }
-
-    SDK.log(`Processed batch ${i / batchSize + 1}/${Math.ceil(items.length / batchSize)}`);
+  for await (const result of stream) {
+    results.push(result);
   }
-
-  return allResults;
+  return results;
 }
 ```
 
-### Pattern 3: Rate Limiting
+Esse helper só é útil se o fluxo realmente precisar desse enriquecimento. Não crie uma camada genérica de concorrência para uma integração sequencial simples. Se a concorrência vier de entrada externa, valide que seja um inteiro positivo antes de usá-la.
+
+## Validação de metadados
+
+`validateMetadata(metadata)` exige um `fieldLabel` presente e rejeita os valores exatos `Action`, `Status` e `Message`. `validateMetadataArray(metadataArray)` exige um array e aplica a mesma validação, identificando o índice inválido no erro.
+
+Essas funções **não** validam dados da origem, tipos dos valores, existência de `fieldName` no objeto, unicidade de colunas ou o contrato de uma API.
 
 ```typescript
-protected async processWithRateLimit<T>(
-  items: T[],
-  processFn: (item: T) => Promise<void>,
-  requestsPerSecond: number
-): Promise<void> {
-  const delay = 1000 / requestsPerSecond;
-  let lastRequestTime = 0;
+import {validateMetadataArray} from '@tunnelhub/sdk';
+import type {Metadata} from '@tunnelhub/sdk';
 
-  for (const item of items) {
-    const now = Date.now();
-    const timeSinceLastRequest = now - lastRequestTime;
+type IntegrationModel = {externalId: string; active: boolean};
 
-    if (timeSinceLastRequest < delay) {
-      await new Promise(resolve =>
-        setTimeout(resolve, delay - timeSinceLastRequest)
-      );
-    }
+const metadata: Metadata<IntegrationModel>[] = [
+  {fieldName: 'externalId', fieldLabel: 'Identificador externo', fieldType: 'TEXT'},
+  {fieldName: 'active', fieldLabel: 'Ativo', fieldType: 'BOOLEAN'},
+];
 
-    await processFn(item);
-    lastRequestTime = Date.now();
-  }
-}
+validateMetadataArray(metadata);
 ```
+
+Use os metadados do projeto e mantenha a validação no ponto apropriado de sua preparação. Não introduza um hook `beforeIntegration()` ou `afterIntegration()` para isso: esses hooks não existem nos fluxos. Veja a ordem de execução em [integration-flows.md](integration-flows.md).
+
+## Configuração global do SDK
+
+| Recurso | Efeito real |
+|---|---|
+| `SDK.verbose` | Booleano global, inicialmente `false`; habilita mensagens emitidas por `SDK.log`. Não silencia `console.log` usado diretamente pelo SDK ou pela automação. |
+| `SDK.log(message)` | Aceita uma string e a envia ao console somente quando `SDK.verbose` é verdadeiro. Não cria resultado de processamento por item. |
+| `SDK.testMode` | Booleano global, inicialmente `false`; alguns componentes o consultam para pular persistência. Não bloqueia rede ou sistemas externos de forma geral. |
+| `SDK.setLocale(locale)` | Método assíncrono para selecionar o idioma das mensagens internas; confira os idiomas suportados na versão instalada. |
+
+Não use `SDK.testMode` como modo de simulação de negócio ou garantia de teste sem efeitos externos. Os métodos da integração continuam sendo executados. Leia [testing-patterns.md](testing-patterns.md) para simular as fronteiras corretas e restaurar flags globais após cada teste.
+
+Mensagens devem trazer contexto útil sem despejar eventos, credenciais ou respostas integrais. Use `message` e os metadados dos resultados do fluxo para o acompanhamento operacional; `SDK.log` é diagnóstico complementar. Para requisições HTTP, consulte [http-interceptor.md](http-interceptor.md).

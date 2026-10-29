@@ -67,6 +67,10 @@ Example mapping:
 
 When asked to configure automatic deploy, generate or update `.github/workflows/deploy-tunnelhub.yml`.
 
+Alinhe a versão do Node.js no workflow com `engines`, a versão instalada do SDK e o runtime de
+`tunnelhub.yml`. Os exemplos abaixo usam Node.js 24, compatível com o SDK 4.1.5 e os templates
+atuais. Não copie Node.js 22 de workflows antigos para uma automação que exige Node.js 24.
+
 Required behavior:
 
 - Use `workflow_dispatch` so deploy can be run manually.
@@ -144,7 +148,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Enable Corepack
         run: corepack enable
@@ -218,7 +222,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Enable Corepack
         run: corepack enable
@@ -276,7 +280,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Enable Corepack
         run: corepack enable

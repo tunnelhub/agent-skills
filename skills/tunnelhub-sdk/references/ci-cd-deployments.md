@@ -1,114 +1,114 @@
-# CI/CD Deployments for TunnelHub Automations
+# Publicação de automações TunnelHub com CI/CD
 
-Source: https://docs.tunnelhub.io/cli/ci-cd-deployments
-Last captured: 2026-06-30
+Fonte: https://docs.tunnelhub.io/cli/ci-cd-deployments
+Última captura: 2026-06-30
 
-Use this reference when configuring automatic deployment for an integration built with `@tunnelhub/sdk`. The expected output is a GitHub Actions workflow at `.github/workflows/deploy-tunnelhub.yml`. Do not run `tunnelhub deploy-automation` from the local agent environment; include that command only inside the workflow file.
+Use esta referência ao configurar a publicação automática de uma integração criada com `@tunnelhub/sdk`. O resultado esperado é um workflow do GitHub Actions em `.github/workflows/deploy-tunnelhub.yml`. Execute `tunnelhub deploy-automation` somente dentro do workflow, sem executá-lo no ambiente local do agente.
 
-## Goal
+## Objetivo
 
-Generate or update `.github/workflows/deploy-tunnelhub.yml` so GitHub Actions can publish a TunnelHub automation with `@tunnelhub/cli`.
+Gere ou atualize `.github/workflows/deploy-tunnelhub.yml` para que o GitHub Actions possa publicar uma automação TunnelHub com `@tunnelhub/cli`.
 
-The CI/CD flow must use account-level CI/CD credentials with an environment allowlist. These credentials belong to the account, but can only deploy to the TunnelHub environment UUIDs authorized when the credential was created.
+O fluxo deve usar credenciais CI/CD da conta com uma lista de ambientes permitidos. Essas credenciais pertencem à conta, mas só permitem publicar nos UUIDs de ambientes TunnelHub autorizados na criação da credencial.
 
-## Prerequisites
+## Pré-requisitos
 
-Before generating the workflow, confirm or document that the project has:
+Antes de gerar o workflow, confirme ou documente que o projeto possui:
 
-- An automation already created in TunnelHub.
-- A `tunnelhub.yml` configured for the automation being published.
-- A `package.artifact` path in `tunnelhub.yml`; the workflow must generate the ZIP at this path before deploying.
-- The UUID for each TunnelHub environment that the workflow can deploy to.
-- Access to `Administration > Settings > CI/CD` in TunnelHub to create CI/CD credentials.
-- GitHub repository permissions to create environments, secrets, and variables.
+- Uma automação já criada no TunnelHub.
+- Um `tunnelhub.yml` configurado para a automação que será publicada.
+- O caminho `package.artifact` em `tunnelhub.yml`; o workflow deve gerar o ZIP nesse caminho antes da publicação.
+- O UUID de cada ambiente TunnelHub no qual o workflow pode publicar.
+- Acesso a `Administration > Settings > CI/CD` no TunnelHub para criar credenciais CI/CD.
+- Permissões no repositório GitHub para criar ambientes, segredos e variáveis.
 
-## Create the CI/CD Credential
+## Criar a credencial CI/CD
 
-In the TunnelHub portal:
+No portal TunnelHub:
 
-1. Open `Administration > Settings`.
-2. Open the `CI/CD` tab.
-3. Click `Criar credencial CI/CD`.
-4. Enter a credential name.
-5. Select the authorized TunnelHub environments.
-6. Finish creation.
-7. Copy the `Client ID` and `Client secret`.
+1. Abra `Administration > Settings`.
+2. Abra a aba `CI/CD`.
+3. Clique em `Criar credencial CI/CD`.
+4. Informe um nome para a credencial.
+5. Selecione os ambientes TunnelHub autorizados.
+6. Conclua a criação.
+7. Copie o `Client ID` e o `Client secret`.
 
-Important rules:
+Regras importantes:
 
-- Do not use `tunnelhub login` in CI.
-- Do not commit credentials.
-- Store `Client ID` and `Client secret` as CI provider secrets.
-- Prefer least-privilege credentials, ideally one credential per environment for production-sensitive flows.
-- The `Client secret` is displayed only once.
-- If a secret is lost or exposed, regenerate or revoke it in `Administration > Settings > CI/CD`.
+- Não use `tunnelhub login` no CI.
+- Não inclua credenciais no controle de versão.
+- Armazene `Client ID` e `Client secret` como segredos do provedor de CI.
+- Prefira credenciais com o menor privilégio necessário, idealmente uma por ambiente em fluxos sensíveis de produção.
+- O `Client secret` é exibido apenas uma vez.
+- Se um segredo for perdido ou exposto, regenere ou revogue a credencial em `Administration > Settings > CI/CD`.
 
-## GitHub Secrets and Variables
+## Segredos e variáveis do GitHub
 
-Recommended GitHub Actions configuration:
+Configuração recomendada no GitHub Actions:
 
-- `TH_CLIENT_ID`: GitHub Environment Secret.
-- `TH_CLIENT_SECRET`: GitHub Environment Secret.
-- `TH_ENVIRONMENT_ID`: GitHub Environment Variable containing the TunnelHub environment UUID.
-- `TH_API_HOST`: Repository variable, GitHub Environment Variable, or fixed workflow value. Use `https://api.tunnelhub.io` for production.
+- `TH_CLIENT_ID`: segredo do ambiente no GitHub.
+- `TH_CLIENT_SECRET`: segredo do ambiente no GitHub.
+- `TH_ENVIRONMENT_ID`: variável do ambiente no GitHub contendo o UUID do ambiente TunnelHub.
+- `TH_API_HOST`: variável do repositório, variável do ambiente no GitHub ou valor fixo no workflow. Use `https://api.tunnelhub.io` para produção.
 
-The GitHub Environment and TunnelHub Environment are different concepts:
+O ambiente do GitHub e o ambiente TunnelHub são conceitos diferentes:
 
-- GitHub Environment controls approvals, protection rules, secrets, and variables in GitHub.
-- TunnelHub Environment is the UUID passed to `--environment-id` during deploy.
-- The link between them is the `TH_ENVIRONMENT_ID` variable.
+- O ambiente do GitHub controla aprovações, regras de proteção, segredos e variáveis no GitHub.
+- O ambiente TunnelHub é identificado pelo UUID passado em `--environment-id` durante a publicação.
+- A variável `TH_ENVIRONMENT_ID` estabelece a ligação entre eles.
 
-Example mapping:
+Exemplo de correspondência:
 
-- GitHub Environment `production` has `TH_ENVIRONMENT_ID=<production-environment-uuid>`.
-- GitHub Environment `development` has `TH_ENVIRONMENT_ID=<development-environment-uuid>`.
+- O ambiente `production` do GitHub tem `TH_ENVIRONMENT_ID=<uuid-do-ambiente-de-producao>`.
+- O ambiente `development` do GitHub tem `TH_ENVIRONMENT_ID=<uuid-do-ambiente-de-desenvolvimento>`.
 
-## Workflow Generation Rules
+## Regras de geração do workflow
 
-When asked to configure automatic deploy, generate or update `.github/workflows/deploy-tunnelhub.yml`.
+Ao configurar publicação automática, gere ou atualize `.github/workflows/deploy-tunnelhub.yml`.
 
 Alinhe a versão do Node.js no workflow com `engines`, a versão instalada do SDK e o runtime de
 `tunnelhub.yml`. Os exemplos abaixo usam Node.js 24, compatível com o SDK 4.1.5 e os templates
 atuais. Não copie Node.js 22 de workflows antigos para uma automação que exige Node.js 24.
 
-Required behavior:
+Comportamento obrigatório:
 
-- Use `workflow_dispatch` so deploy can be run manually.
-- Use branch triggers only when the user asks for them or the branch mapping is clear from the project.
-- Install dependencies using the existing package manager, detecting `pnpm-lock.yaml`, `yarn.lock`, or falling back to `npm ci`.
-- Generate the ZIP artifact at the path configured by `package.artifact` in `tunnelhub.yml` before running deploy.
-- Install `@tunnelhub/cli` in the workflow.
-- Run `tunnelhub deploy-automation` only inside the workflow.
-- Pass `--environment-id "$TH_ENVIRONMENT_ID"`.
-- Pass a meaningful `--message`; this is required.
+- Use `workflow_dispatch` para permitir publicação manual.
+- Use gatilhos por branch somente quando solicitados pelo usuário ou quando a correspondência de branches estiver clara no projeto.
+- Instale as dependências com o gerenciador existente, identificando `pnpm-lock.yaml`, `yarn.lock` ou usando `npm ci` na ausência deles.
+- Gere o ZIP no caminho configurado em `package.artifact` de `tunnelhub.yml` antes da publicação.
+- Instale `@tunnelhub/cli` no workflow.
+- Execute `tunnelhub deploy-automation` somente dentro do workflow.
+- Passe `--environment-id "$TH_ENVIRONMENT_ID"`.
+- Passe uma mensagem significativa em `--message`; esse argumento é obrigatório.
 
-Recommended deploy message context:
+Contexto recomendado para a mensagem de publicação:
 
-- Commit message.
-- Short commit SHA.
-- Commit author email or GitHub actor.
-- Branch name.
-- Workflow run or PR/release context when useful.
+- Mensagem do commit.
+- SHA abreviado do commit.
+- E-mail do autor do commit ou usuário responsável pela execução no GitHub.
+- Nome da branch.
+- Execução do workflow ou contexto do PR/release, quando útil.
 
-The created revision stores:
+A revisão criada armazena:
 
-- `createdBy` as `api-client:<clientId>`.
-- `message` with the human and operational context supplied to `--message`.
+- `createdBy` como `api-client:<clientId>`.
+- `message` com o contexto humano e operacional fornecido em `--message`.
 
-## Conditional Test Safety
+## Cuidados quando o workflow executa testes
 
-Tests are not mandatory for TunnelHub deploy workflow generation. Do not add a test step unless the project already has that convention, the workflow already runs tests, or the user explicitly asks for tests.
+Testes não são obrigatórios para gerar um workflow de publicação TunnelHub. Adicione uma etapa de testes somente quando o projeto já adotar essa convenção, o workflow já executar testes ou o usuário solicitar explicitamente.
 
-If the workflow will run tests, inspect `package.json` and the test structure before keeping or adding the test step. Avoid running debug, unmocked, or real-data tests in CI.
+Se o workflow executar testes, examine `package.json` e a estrutura de testes antes de manter ou adicionar essa etapa. Evite executar no CI testes de depuração, sem mocks ou com dados reais.
 
-Check for:
+Verifique a existência de:
 
-- Test paths or filenames containing `unmocked`.
-- Tests created for manual debugging.
-- Tests that use real credentials or environment IDs.
-- Tests that make real HTTP/database/service calls without mocks.
+- Caminhos ou nomes de testes contendo `unmocked`.
+- Testes criados para depuração manual.
+- Testes que usam credenciais ou identificadores reais de ambientes.
+- Testes que fazem chamadas reais HTTP, a bancos ou a serviços sem mocks.
 
-For Jest projects that keep real-call tests under an `unmocked` path, prefer scripts like:
+Em projetos Jest que mantêm testes com chamadas reais em um caminho `unmocked`, prefira scripts como:
 
 ```json
 "scripts": {
@@ -118,16 +118,16 @@ For Jest projects that keep real-call tests under an `unmocked` path, prefer scr
 }
 ```
 
-Do not rewrite unrelated test setup just because an `unmocked` path exists. Adjust or warn only when those tests would be invoked by the deploy workflow, or when the user asks for the test scripts to be made safe.
+Não reescreva configurações de teste não relacionadas apenas porque existe um caminho `unmocked`. Ajuste ou sinalize o problema somente quando esses testes seriam executados pelo workflow de publicação ou quando o usuário pedir para tornar os scripts de teste seguros.
 
-If it is unclear whether a test makes real calls, ask for confirmation or exclude the suspicious tests from the CI command instead of silently assuming they are safe.
+Se não estiver claro se um teste faz chamadas reais, peça confirmação ou exclua os testes suspeitos do comando de CI, sem presumir silenciosamente que são seguros.
 
-## GitHub Actions Template: main to production
+## Modelo de GitHub Actions: main para produção
 
-Use this when `main` should publish to the GitHub Environment `production`.
+Use este modelo quando `main` deve publicar no ambiente `production` do GitHub.
 
 ```yaml
-name: Deploy TunnelHub Automation
+name: Publicar automação TunnelHub
 
 on:
   push:
@@ -142,18 +142,18 @@ jobs:
     environment: production
 
     steps:
-      - name: Checkout repository
+      - name: Obter código do repositório
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Enable Corepack
+      - name: Habilitar Corepack
         run: corepack enable
 
-      - name: Install dependencies
+      - name: Instalar dependências
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm install --frozen-lockfile
@@ -163,7 +163,7 @@ jobs:
             npm ci
           fi
 
-      - name: Build deployment artifact
+      - name: Gerar artefato de publicação
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm build
@@ -173,10 +173,10 @@ jobs:
             npm run build
           fi
 
-      - name: Install TunnelHub CLI
+      - name: Instalar CLI do TunnelHub
         run: npm install --global @tunnelhub/cli
 
-      - name: Deploy automation
+      - name: Publicar automação
         env:
           TH_API_HOST: https://api.tunnelhub.io
           TH_CLIENT_ID: ${{ secrets.TH_CLIENT_ID }}
@@ -188,19 +188,19 @@ jobs:
           COMMIT_SHA="$(git rev-parse --short HEAD)"
           DEPLOY_MESSAGE="${COMMIT_MESSAGE}
 
-          Deploy ${COMMIT_SHA} by ${COMMIT_EMAIL}"
+          Publicação ${COMMIT_SHA} por ${COMMIT_EMAIL}"
 
           tunnelhub deploy-automation \
             --environment-id "$TH_ENVIRONMENT_ID" \
             --message "$DEPLOY_MESSAGE"
 ```
 
-## GitHub Actions Template: develop and main
+## Modelo de GitHub Actions: develop e main
 
-Use this when `develop` should deploy to `development`, and `main` should deploy to `production`.
+Use este modelo quando `develop` deve publicar em `development` e `main` deve publicar em `production`.
 
 ```yaml
-name: Deploy TunnelHub Automation
+name: Publicar automação TunnelHub
 
 on:
   push:
@@ -216,18 +216,18 @@ jobs:
     environment: development
 
     steps:
-      - name: Checkout repository
+      - name: Obter código do repositório
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Enable Corepack
+      - name: Habilitar Corepack
         run: corepack enable
 
-      - name: Install dependencies
+      - name: Instalar dependências
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm install --frozen-lockfile
@@ -237,7 +237,7 @@ jobs:
             npm ci
           fi
 
-      - name: Build deployment artifact
+      - name: Gerar artefato de publicação
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm build
@@ -247,10 +247,10 @@ jobs:
             npm run build
           fi
 
-      - name: Install TunnelHub CLI
+      - name: Instalar CLI do TunnelHub
         run: npm install --global @tunnelhub/cli
 
-      - name: Deploy automation
+      - name: Publicar automação
         env:
           TH_API_HOST: https://api.tunnelhub.io
           TH_CLIENT_ID: ${{ secrets.TH_CLIENT_ID }}
@@ -262,7 +262,7 @@ jobs:
           COMMIT_SHA="$(git rev-parse --short HEAD)"
           DEPLOY_MESSAGE="${COMMIT_MESSAGE}
 
-          Deploy ${COMMIT_SHA} by ${COMMIT_EMAIL}"
+          Publicação ${COMMIT_SHA} por ${COMMIT_EMAIL}"
 
           tunnelhub deploy-automation \
             --environment-id "$TH_ENVIRONMENT_ID" \
@@ -274,18 +274,18 @@ jobs:
     environment: production
 
     steps:
-      - name: Checkout repository
+      - name: Obter código do repositório
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Enable Corepack
+      - name: Habilitar Corepack
         run: corepack enable
 
-      - name: Install dependencies
+      - name: Instalar dependências
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm install --frozen-lockfile
@@ -295,7 +295,7 @@ jobs:
             npm ci
           fi
 
-      - name: Build deployment artifact
+      - name: Gerar artefato de publicação
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm build
@@ -305,10 +305,10 @@ jobs:
             npm run build
           fi
 
-      - name: Install TunnelHub CLI
+      - name: Instalar CLI do TunnelHub
         run: npm install --global @tunnelhub/cli
 
-      - name: Deploy automation
+      - name: Publicar automação
         env:
           TH_API_HOST: https://api.tunnelhub.io
           TH_CLIENT_ID: ${{ secrets.TH_CLIENT_ID }}
@@ -320,18 +320,18 @@ jobs:
           COMMIT_SHA="$(git rev-parse --short HEAD)"
           DEPLOY_MESSAGE="${COMMIT_MESSAGE}
 
-          Deploy ${COMMIT_SHA} by ${COMMIT_EMAIL}"
+          Publicação ${COMMIT_SHA} por ${COMMIT_EMAIL}"
 
           tunnelhub deploy-automation \
             --environment-id "$TH_ENVIRONMENT_ID" \
             --message "$DEPLOY_MESSAGE"
 ```
 
-## Rotation and Revocation
+## Rotação e revogação
 
-In `Administration > Settings > CI/CD`:
+Em `Administration > Settings > CI/CD`:
 
-- Use `Regenerar secret` to issue a new secret for an existing credential.
-- Use `Revogar` to block new deploys with that credential.
+- Use `Regenerar secret` para gerar um novo segredo para uma credencial existente.
+- Use `Revogar` para bloquear novas publicações com essa credencial.
 
-After regenerating a secret, update the GitHub Environment secrets immediately. If migrating to environment-specific credentials, revoke old credentials after the new flow is validated.
+Após regenerar um segredo, atualize imediatamente os segredos do ambiente no GitHub. Ao migrar para credenciais específicas por ambiente, revogue as antigas depois de validar o novo fluxo.

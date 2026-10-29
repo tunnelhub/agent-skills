@@ -1,24 +1,25 @@
 # SQL Tables / Tabelas de Apoio
 
-This reference explains how to use `SqlTables` from `@tunnelhub/sdk` to read and mutate structured relational support
-data during managed TunnelHub automation executions.
+Esta referência explica como usar `SqlTables` de `@tunnelhub/sdk` para ler e alterar dados relacionais estruturados de
+apoio durante execuções de automações no ambiente gerenciado do TunnelHub.
 
-## Overview
+## Visão geral
 
-SQL Tables, also called Tabelas de Apoio, are small relational tables managed by TunnelHub and stored as SQLite files on
-EFS. The platform owns table metadata, schema changes, CSV import/export, access control, and transport between
-environments. Automations use the SDK helper only to operate rows at runtime.
+SQL Tables, também chamadas de Tabelas de Apoio, são pequenas tabelas relacionais gerenciadas pelo TunnelHub e
+armazenadas como arquivos SQLite no EFS. A plataforma gerencia os metadados das tabelas, as alterações de esquema,
+a importação e exportação de CSV, o controle de acesso e o transporte entre ambientes. As automações usam o helper
+do SDK apenas para operar registros durante a execução.
 
-Use SQL Tables when data has its own structure, typed columns, a primary key, filters, pagination, or must be visible and
-maintainable in the product.
+Use Tabelas de Apoio quando os dados tiverem estrutura própria, colunas tipadas, chave primária, filtros, paginação ou
+precisarem ficar visíveis e disponíveis para manutenção no produto.
 
-Keep using `DataStore` and `ConversionTable` when the requirement is a simple from/to value mapping.
+Continue usando `DataStore` e `ConversionTable` quando o requisito for um de/para simples de valores.
 
-## Runtime Requirements
+## Requisitos do ambiente de execução
 
-SQL Tables only work in a managed runtime with SQLite-on-EFS support enabled.
+As Tabelas de Apoio funcionam apenas em um ambiente gerenciado com suporte a SQLite no EFS habilitado.
 
-Required `tunnelhub.yml` configuration:
+Configuração obrigatória em `tunnelhub.yml`:
 
 ```yaml
 configuration:
@@ -32,22 +33,22 @@ configuration:
     enabled: true
 ```
 
-Requirements:
+Requisitos:
 
-- Use `runtime: nodejs24.x` because the helper depends on `node:sqlite`
+- Use `runtime: nodejs24.x`, pois o helper depende de `node:sqlite`
 - Use `runInVpc: true`
-- Use `runtimeEngine: LAMBDA` or `ECS_FARGATE`
-- Enable `configuration.sqlTables.enabled: true`
-- Execute inside TunnelHub managed runtime with `TH_SQL_TABLES_ENABLED=true`
-- Ensure the SQL Tables EFS mount is provided by the platform
-- Ensure the event includes `tenantId` and `environmentId`
+- Use `runtimeEngine: LAMBDA` ou `ECS_FARGATE`
+- Habilite `configuration.sqlTables.enabled: true`
+- Execute no ambiente gerenciado do TunnelHub com `TH_SQL_TABLES_ENABLED=true`
+- Garanta que a plataforma forneça a montagem EFS das Tabelas de Apoio
+- Garanta que o evento inclua `tenantId` e `environmentId`
 
-Do not use `SqlTables` in local scripts, unmanaged runtimes, or older Node.js runtimes unless the test explicitly mocks
-the helper.
+Não use `SqlTables` em scripts locais, ambientes não gerenciados ou versões anteriores do Node.js, a menos que o
+teste substitua explicitamente o helper por um mock.
 
-## Data Model
+## Modelo de dados
 
-Each SQL Table has platform metadata:
+Cada Tabela de Apoio tem metadados na plataforma:
 
 ```typescript
 type SqlTableMetadata = {
@@ -66,7 +67,7 @@ type SqlTableMetadata = {
 };
 ```
 
-Supported column types:
+Tipos de coluna aceitos:
 
 - `TEXT`
 - `INTEGER`
@@ -75,10 +76,11 @@ Supported column types:
 - `BOOLEAN`
 - `DATETIME`
 
-Columns can be nullable, have defaults, be unique, or be auto-incremented depending on the platform schema. Besides the
-business primary key, TunnelHub maintains a technical `rowId` used by `updateRow` and `deleteRow`.
+As colunas podem aceitar valores nulos, ter valores padrão, ser únicas ou ter incremento automático, conforme o
+esquema da plataforma. Além da chave primária de negócio, o TunnelHub mantém um `rowId` técnico usado por
+`updateRow` e `deleteRow`.
 
-## Constructor
+## Construtor
 
 ```typescript
 import {SqlTables} from '@tunnelhub/sdk';
@@ -86,7 +88,7 @@ import {SqlTables} from '@tunnelhub/sdk';
 const sqlTables = new SqlTables(event);
 ```
 
-Inside an integration flow, prefer `this.executionEvent`:
+Dentro de um fluxo de integração, prefira `this.executionEvent`:
 
 ```typescript
 class CustomerCacheIntegration extends NoDeltaIntegrationFlow<Customer> {
@@ -99,8 +101,8 @@ class CustomerCacheIntegration extends NoDeltaIntegrationFlow<Customer> {
 }
 ```
 
-The constructor fails early when runtime support is not configured, including missing `tenantId`, missing
-`environmentId`, `TH_SQL_TABLES_ENABLED !== 'true'`, missing mount path, or Node.js version lower than 24.
+O construtor falha imediatamente quando o suporte do ambiente de execução não está configurado, incluindo ausência
+de `tenantId`, `environmentId` ou caminho de montagem, `TH_SQL_TABLES_ENABLED !== 'true'` ou versão do Node.js inferior a 24.
 
 ## insertRow
 
@@ -111,28 +113,28 @@ public async insertRow<T extends Record<string, unknown> = Record<string, unknow
 ): Promise<{rowId: string; values: T}>
 ```
 
-Insert a row and return the generated technical `rowId` plus normalized values read back from SQLite.
+Insere um registro e retorna o `rowId` técnico gerado e os valores normalizados lidos de volta do SQLite.
 
-Example:
+Exemplo:
 
 ```typescript
 const inserted = await sqlTables.insertRow('customer-cache', {
   document: '12345678900',
-  name: 'Customer example',
+  name: 'Cliente de exemplo',
   active: true,
   lastSeenAt: '2026-06-17T12:00:00Z',
 });
 ```
 
-Behavior:
+Comportamento:
 
-- Resolve table metadata by `externalCode`
-- Require table `operationalStatus` to be `READY`
-- Reject unknown columns and `rowId` in the payload
-- Require non-null primary key columns and non-nullable columns unless they have defaults or `autoIncrement`
-- Apply default values when configured in the schema
-- Normalize values by column type before insertion
-- Map SQLite constraint failures to SDK SQL Table errors
+- Resolve os metadados da tabela por `externalCode`
+- Exige que o `operationalStatus` da tabela seja `READY`
+- Rejeita colunas desconhecidas e `rowId` no payload
+- Exige valores não nulos nas colunas da chave primária e nas que não aceitam nulos, salvo quando têm valor padrão ou `autoIncrement`
+- Aplica valores padrão quando configurados no esquema
+- Normaliza os valores pelo tipo da coluna antes da inserção
+- Converte falhas de restrições do SQLite em erros de Tabelas de Apoio do SDK
 
 ## queryRows
 
@@ -154,9 +156,9 @@ public async queryRows<T extends Record<string, unknown> = Record<string, unknow
 }>
 ```
 
-List rows with pagination, optional filters, and optional ordering.
+Lista registros com paginação, filtros opcionais e ordenação opcional.
 
-Example:
+Exemplo:
 
 ```typescript
 const page = await sqlTables.queryRows<CustomerCacheRow>('customer-cache', {
@@ -173,23 +175,23 @@ const page = await sqlTables.queryRows<CustomerCacheRow>('customer-cache', {
 });
 
 for (const row of page.data) {
-  SDK.log(`Customer ${row.values.document} has rowId ${row.rowId}`);
+  SDK.log(`Cliente ${row.values.document} tem rowId ${row.rowId}`);
 }
 ```
 
-Behavior:
+Comportamento:
 
-- Default `current` is `1`
-- Default `pageSize` is `20`
-- Reject non-integer, zero, or negative pagination values
-- Build filters as `IN` conditions for each field
-- Reject filters for fields not present in the schema
-- Normalize filter values using the column type rules
-- Use the explicit sorter when provided
-- Reject sorters for fields not present in the schema or order values outside `ascend`/`descend`
-- Default ordering is primary key columns plus `rowId ASC`
+- O valor padrão de `current` é `1`
+- O valor padrão de `pageSize` é `20`
+- Rejeita valores de paginação não inteiros, iguais a zero ou negativos
+- Constrói os filtros como condições `IN` para cada campo
+- Rejeita filtros para campos ausentes no esquema
+- Normaliza os valores dos filtros conforme as regras do tipo da coluna
+- Usa a ordenação explícita quando fornecida
+- Rejeita ordenações por campos ausentes no esquema ou valores de ordem diferentes de `ascend`/`descend`
+- A ordenação padrão usa as colunas da chave primária seguidas de `rowId ASC`
 
-Always provide a reasonable `pageSize`; avoid assuming a SQL Table can be loaded entirely in one call.
+Sempre informe um `pageSize` adequado; evite presumir que uma Tabela de Apoio possa ser carregada inteira em uma chamada.
 
 ## updateRow
 
@@ -201,27 +203,28 @@ public async updateRow<T extends Record<string, unknown> = Record<string, unknow
 ): Promise<{rowId: string; values: T}>
 ```
 
-Patch an existing row by technical `rowId`.
+Altera parcialmente um registro existente pelo `rowId` técnico.
 
-Example:
+Exemplo:
 
 ```typescript
 const updated = await sqlTables.updateRow('customer-cache', inserted.rowId, {
-  name: 'Updated customer',
+  name: 'Cliente atualizado',
   active: false,
 });
 ```
 
-Behavior:
+Comportamento:
 
-- Require table `operationalStatus` to be `READY`
-- Require the `rowId` to exist
-- Reject unknown columns and `rowId` in the patch
-- Reject updates to columns that are part of the SQL Table primary key
-- Normalize patch values by column type
-- Return the full row values after update
+- Exige que o `operationalStatus` da tabela seja `READY`
+- Exige que o `rowId` exista
+- Rejeita colunas desconhecidas e `rowId` no patch
+- Rejeita alterações em colunas que fazem parte da chave primária da Tabela de Apoio
+- Normaliza os valores do patch pelo tipo da coluna
+- Retorna todos os valores do registro após a alteração
 
-Use `rowId` from `insertRow` or `queryRows`. Do not try to update by business primary key directly with this helper.
+Use o `rowId` obtido em `insertRow` ou `queryRows`. Não tente atualizar diretamente pela chave primária de negócio
+com este helper.
 
 ## deleteRow
 
@@ -229,56 +232,57 @@ Use `rowId` from `insertRow` or `queryRows`. Do not try to update by business pr
 public async deleteRow(externalCode: string, rowId: string): Promise<boolean>
 ```
 
-Delete an existing row by technical `rowId`.
+Exclui um registro existente pelo `rowId` técnico.
 
-Example:
+Exemplo:
 
 ```typescript
 await sqlTables.deleteRow('customer-cache', inserted.rowId);
 ```
 
-Behavior:
+Comportamento:
 
-- Require table `operationalStatus` to be `READY`
-- Require the `rowId` to exist
-- Return `true` after a successful delete
+- Exige que o `operationalStatus` da tabela seja `READY`
+- Exige que o `rowId` exista
+- Retorna `true` após uma exclusão bem-sucedida
 
-## Type Normalization Rules
+## Regras de normalização de tipos
 
-Use values that match the SQL Table schema. The SDK normalizes acceptable inputs and rejects invalid payloads.
+Use valores compatíveis com o esquema da Tabela de Apoio. O SDK normaliza as entradas aceitas e rejeita payloads inválidos.
 
-Rules:
+Regras:
 
-- `TEXT`: Convert to string
-- `BOOLEAN`: Accept `true`, `false`, `'true'`, `'false'`, `1`, `0`, `'1'`, `'0'`
-- `INTEGER`: Accept finite safe integers or numeric strings representing safe integers
-- `REAL` and `NUMERIC`: Accept finite numbers or numeric strings
-- `DATETIME`: Accept values parseable by `Date` and containing timezone information, then store as ISO string
-- `null`, `undefined`, and empty non-text values are accepted only for nullable non-primary-key columns
+- `TEXT`: converte para string
+- `BOOLEAN`: aceita `true`, `false`, `'true'`, `'false'`, `1`, `0`, `'1'`, `'0'`
+- `INTEGER`: aceita inteiros finitos seguros ou strings numéricas que representem inteiros seguros
+- `REAL` e `NUMERIC`: aceitam números finitos ou strings numéricas
+- `DATETIME`: aceita valores interpretáveis por `Date` que contenham informação de fuso horário e os armazena como string ISO
+- `null`, `undefined` e valores vazios não textuais são aceitos apenas em colunas que aceitam nulos e não fazem parte da chave primária
 
-Important `DATETIME` examples:
+Exemplos importantes de `DATETIME`:
 
 ```typescript
-// Valid: includes timezone
+// Válido: inclui fuso horário
 await sqlTables.insertRow('events', {eventId: '1', occurredAt: '2026-06-17T12:00:00Z'});
 
-// Invalid: no timezone suffix
+// Inválido: sem sufixo de fuso horário
 await sqlTables.insertRow('events', {eventId: '2', occurredAt: '2026-06-17T12:00:00'});
 ```
 
-## External Code Rules
+## Regras de código externo
 
-The helper normalizes `externalCode` by trimming and lowercasing it. Valid values match:
+O helper normaliza `externalCode`, removendo espaços nas extremidades e convertendo para minúsculas. Os valores
+válidos correspondem a:
 
 ```text
 ^[a-z][a-z0-9-]{0,63}$
 ```
 
-Use stable, domain-oriented external codes such as `customer-cache`, `processed-orders`, or `employee-state`.
+Use códigos externos estáveis e relacionados ao domínio, como `customer-cache`, `processed-orders` ou `employee-state`.
 
-## Integration Pattern
+## Padrão de integração
 
-Example using SQL Tables as an operational cache:
+Exemplo de uso das Tabelas de Apoio como cache operacional:
 
 ```typescript
 type Customer = {
@@ -311,74 +315,76 @@ class ExportCustomers extends NoDeltaIntegrationFlow<Customer> {
         name: customer.name,
         active: customer.active,
       });
-      return {message: 'Customer cache updated', data: customer};
+      return {message: 'Cache do cliente atualizado', data: customer};
     }
 
     await this.sqlTables.insertRow('customer-cache', customer);
-    return {message: 'Customer cache inserted', data: customer};
+    return {message: 'Cliente inserido no cache', data: customer};
   }
 
   protected defineMetadata(): Array<Metadata> {
     return [
-      {fieldName: 'document', fieldLabel: 'Document', fieldType: 'TEXT'},
-      {fieldName: 'name', fieldLabel: 'Name', fieldType: 'TEXT'},
-      {fieldName: 'active', fieldLabel: 'Active', fieldType: 'BOOLEAN'},
+      {fieldName: 'document', fieldLabel: 'Documento', fieldType: 'TEXT'},
+      {fieldName: 'name', fieldLabel: 'Nome', fieldType: 'TEXT'},
+      {fieldName: 'active', fieldLabel: 'Ativo', fieldType: 'BOOLEAN'},
     ];
   }
 }
 ```
 
-## Troubleshooting
+## Solução de problemas
 
-### Runtime not configured
+### Ambiente de execução não configurado
 
-Cause: Missing Node.js 24, `TH_SQL_TABLES_ENABLED`, `tenantId`, `environmentId`, or SQL Tables EFS mount.
+Causa: ausência de Node.js 24, `TH_SQL_TABLES_ENABLED`, `tenantId`, `environmentId` ou montagem EFS das Tabelas de Apoio.
 
-Fix: Check `tunnelhub.yml`, deploy validation, automation runtime engine, VPC settings, and whether SQL Tables are enabled
-for the automation.
+Correção: confira `tunnelhub.yml`, a validação de implantação, o mecanismo de execução da automação, as configurações
+de VPC e se as Tabelas de Apoio estão habilitadas para a automação.
 
-### Table not found
+### Tabela não encontrada
 
-Cause: Wrong `externalCode`, table not associated with the automation/package, or metadata not transported to the target
-environment.
+Causa: `externalCode` incorreto, tabela não associada à automação ou ao pacote, ou metadados não transportados para o
+ambiente de destino.
 
-Fix: Confirm the table exists in the same tenant/environment and use the platform `externalCode`, not the display name.
+Correção: confirme que a tabela existe no mesmo tenant e ambiente e use o `externalCode` da plataforma, não o nome de exibição.
 
-### Table not ready
+### Tabela não está pronta
 
-Cause: Table is still provisioning, deleting, or in error state.
+Causa: a tabela ainda está em provisionamento, em exclusão ou em estado de erro.
 
-Fix: Check the SQL Table operational status in the platform before running row mutations.
+Correção: confira o status operacional da Tabela de Apoio na plataforma antes de alterar registros.
 
-### Invalid row payload
+### Payload de registro inválido
 
-Cause: Unknown column, missing required column, invalid type, invalid `DATETIME`, or attempt to write `rowId`.
+Causa: coluna desconhecida, coluna obrigatória ausente, tipo inválido, `DATETIME` inválido ou tentativa de escrever `rowId`.
 
-Fix: Compare the payload with `schemaDefinition`; include timezone in datetime values.
+Correção: compare o payload com `schemaDefinition`; inclua o fuso horário nos valores de data e hora.
 
-### Primary key update not allowed
+### Alteração de chave primária não permitida
 
-Cause: `updateRow` patch includes a primary key column.
+Causa: o patch de `updateRow` inclui uma coluna da chave primária.
 
-Fix: Delete and recreate the row if the business key must change, or model mutable fields outside the primary key.
+Correção: exclua e recrie o registro se a chave de negócio precisar mudar, ou modele os campos mutáveis fora da chave primária.
 
-### Constraint violation
+### Violação de restrição
 
-Cause: Duplicate primary key or unique index, not-null violation, or SQLite constraint error.
+Causa: chave primária ou índice único duplicado, violação de coluna que não aceita nulos ou erro de restrição do SQLite.
 
-Fix: Query first by business key when implementing upsert-like behavior, and handle duplicates explicitly.
+Correção: consulte primeiro pela chave de negócio ao implementar um comportamento semelhante a upsert e trate
+as duplicidades explicitamente.
 
-### Database locked or busy
+### Banco bloqueado ou ocupado
 
-Cause: Concurrent writes contending on the same SQLite file.
+Causa: escritas concorrentes disputando acesso ao mesmo arquivo SQLite.
 
-Fix: Reduce write concurrency, batch operations at the integration level, or retry the business operation when appropriate.
+Correção: reduza a concorrência de escrita, agrupe as operações em lotes na integração ou repita a operação de negócio
+quando apropriado.
 
-## Testing Notes
+## Observações sobre testes
 
-Tests that exercise the real `SqlTables` helper require Node.js 24 or newer because `node:sqlite` is unavailable in older
-runtimes. For unit tests that do not need SQLite behavior, wrap `SqlTables` usage behind a small method or class property
-and mock that boundary.
+Testes que exercitam o helper `SqlTables` real exigem Node.js 24 ou superior, pois `node:sqlite` não está disponível em
+versões anteriores. Em testes unitários que não precisam validar o comportamento do SQLite, encapsule o uso de
+`SqlTables` em um método pequeno ou uma propriedade de classe e faça mock dessa fronteira.
 
-When testing real SQL Tables behavior, provide runtime-like environment variables and test metadata/SQLite files. Do not
-scan production DynamoDB tables to discover metadata.
+Ao testar o comportamento real das Tabelas de Apoio, forneça variáveis de ambiente equivalentes às de execução e
+metadados e arquivos SQLite de teste. Não faça scan de tabelas DynamoDB de produção para descobrir metadados.

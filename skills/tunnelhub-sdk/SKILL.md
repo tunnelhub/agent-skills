@@ -34,12 +34,16 @@ ou alterar seu modelo, mapeamento ou divisão de responsabilidades.
 | `src/classes/integration.ts` | Estender o fluxo adequado, conectar os serviços e implementar carga, normalização e ações. |
 | `src/types/integration.ts` | Definir `IntegrationModel`, o modelo normalizado usado na comparação e no monitoramento. |
 | `src/types/<sistema>.ts` | Tipos e enumerações dos contratos externos efetivamente utilizados. |
-| `src/services/<sistema>Service.ts` | Encapsular transporte, autenticação, paginação e validação da resposta daquele sistema. |
+| `src/services/<sistema>Service.ts` | Usar o conector disponível ou encapsular o transporte próprio e tratar o contrato daquele sistema. |
 | `src/classes/conversions.ts` | Conversões de domínio reutilizadas ou que precisam de teste isolado; criar quando necessário. |
 | `src/metadata.ts` | Definir as colunas operacionais, validadas com `satisfies Metadata<IntegrationModel>[]`. |
 
 Essa é a organização padrão para uma automação nova. Preserve caminhos equivalentes já adotados,
 como `src/core/integration.ts`, `src/integration.ts`, serviços `*Api.ts` e `util/conversions.ts`.
+Ao integrar um sistema externo, procure um pacote `@tunnelhub/connector-*` no npm antes de
+implementar o cliente. Confira se a versão usada atende à operação necessária.
+Siga o roteiro de [descoberta e uso de conectores](references/connectors.md).
+
 Crie somente os arquivos necessários. Clientes SOAP gerados ficam separados do código de negócio.
 Não introduza frameworks internos, fábricas, repositórios genéricos ou camadas que só repassam chamadas.
 

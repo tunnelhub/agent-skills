@@ -4,7 +4,7 @@ Public agent skills for the TunnelHub ecosystem.
 
 ## Available Skills
 
-- `tunnelhub-sdk` - guidance for building and maintaining integrations with `@tunnelhub/sdk`
+- `tunnelhub-sdk` - guidance for building and maintaining integrations with `@tunnelhub/sdk`, including [discovering TunnelHub connectors on npm](skills/tunnelhub-sdk/references/connectors.md)
 
 ## Install With skills.sh
 
